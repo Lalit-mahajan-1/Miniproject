@@ -1,0 +1,215 @@
+/* General Layout */
+.marks-upload-container {
+  display: grid;
+  gap: 24px;
+}
+
+.upload-card .title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.flow-chip {
+  background-color: #eef2ff; /* A light indigo */
+  color: #4338ca;
+}
+
+/* Dropzone */
+.dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  background-color: #f8fafc;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+.dropzone.drag-active {
+  border-color: #4f46e5;
+  background-color: #eef2ff;
+}
+.dropzone-icon {
+  font-size: 48px !important;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+/* Previews & Validation */
+.csv-preview {
+  margin-top: 24px;
+}
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.invalid-block {
+  margin-top: 12px;
+  background: #fffbe6; /* Light yellow */
+  border: 1px solid #fde047;
+  padding: 12px;
+  border-radius: 8px;
+}
+.invalid-block ul {
+  padding-left: 20px;
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  color: #713f12;
+}
+
+/* Stats & Insights Panel */
+.stats-panel {
+  background-color: white;
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid #e2e8f0;
+}
+.stats-title {
+  margin-bottom: 16px !important;
+}
+.insights-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 20px;
+}
+@media (max-width: 900px) {
+  .insights-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Donut Gauge */
+.gauge-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #f8fafc;
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+}
+.gauge {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: conic-gradient(var(--gauge-color) calc(var(--value) * 1%), #e2e8f0 0);
+  display: grid;
+  place-items: center;
+}
+.gauge-inner {
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  background-color: white;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.gauge-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.gauge-sub {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+.gauge-meta {
+  margin-top: 12px;
+}
+
+/* Performance Levels */
+.levels-grid {
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 12px;
+}
+.level-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.level-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+}
+.level-values strong {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+.level-card.high { border-left: 4px solid #22c55e; }
+.level-card.med  { border-left: 4px solid #f59e0b; }
+.level-card.low  { border-left: 4px solid #ef4444; }
+
+/* Subject Bars */
+.subjects-card {
+  grid-column: 1 / -1;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+}
+.subjects-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+.subject-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 60px;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.9rem;
+}
+.subject-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+.subject-bar {
+  height: 8px;
+  background-color: #f1f5f9;
+  border-radius: 99px;
+  overflow: hidden;
+}
+.subject-bar-fill {
+  height: 100%;
+  transition: width 0.8s ease-out;
+}
+.subject-avg {
+  text-align: right;
+  color: #334155;
+  font-weight: 500;
+}
+
+/* Save Button & Final Table */
+.save-btn {
+  margin-top: 20px !important;
+  width: 100%;
+  padding: 10px 0 !important;
+  font-size: 1rem !important;
+}
+
+.results-table-container {
+  background-color: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* Animations */
+.fade-in-up {
+  animation: fadeInUp 400ms ease-out forwards;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

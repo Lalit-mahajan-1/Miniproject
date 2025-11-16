@@ -1,63 +1,129 @@
-import React from 'react';
-import { Menu, BookOpen, Bell, Search } from 'lucide-react';
+// frontend/src/Components/Navbar.jsx
+import React, { useContext, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { AuthContext } from "../context/AuthContext";
+import "./Navbar.css";
+import {
+  Drawer,
+  List,
+  ListItem,
+  ListItemText,
+  IconButton,
+  Divider,
+  Avatar,
+} from "@mui/material";
+import MenuIcon from "@mui/icons-material/Menu";
+import CloseIcon from "@mui/icons-material/Close";
+import HomeIcon from "@mui/icons-material/Home";
+import FolderIcon from "@mui/icons-material/Folder";
+import LogoutIcon from "@mui/icons-material/Logout";
+import DescriptionIcon from "@mui/icons-material/Description"; // NEW
 
-const Navbar = ({ setSidebarOpen }) => {
+const Navbar = () => {
+  const { user, logout } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const toggleDrawer = (open) => (event) => {
+    if (event?.type === "keydown" && (event.key === "Tab" || event.key === "Shift")) return;
+    setDrawerOpen(open);
+  };
+
+  const handleNavigation = (path) => {
+    navigate(path);
+    setDrawerOpen(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
   return (
-    <nav className="bg-white shadow-sm border-b border-gray-200">
-      <div className="flex items-center justify-between h-16 px-6">
-        {/* Left side */}
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-          >
-            <Menu size={20} />
-          </button>
-          
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-600 rounded-lg">
-              <BookOpen className="text-white" size={20} />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">EduAnalytics</h1>
-              <p className="text-xs text-gray-500">Teacher Dashboard</p>
+    <>
+      <nav className="navbar" role="navigation" aria-label="main navigation">
+        <div className="navbar-container">
+          <div className="navbar-left">
+            {user?.role === "teacher" && (
+              <IconButton
+                onClick={toggleDrawer(true)}
+                className="menu-icon"
+                aria-label="Open menu"
+                size="large"
+                edge="start"
+              >
+                <MenuIcon />
+              </IconButton>
+            )}
+            <div className="navbar-brand" onClick={() => navigate("/")}>
+              <h2>Student Risk System</h2>
             </div>
           </div>
+
+          <div className="navbar-center">
+            <p>Empowering Teachers with Predictive Insights</p>
+          </div>
+
+          <div className="navbar-right">
+            <div className="user-section">
+              <Avatar sx={{ bgcolor: "#4f9efc", width: 36, height: 36 }}>
+                {user?.name?.[0]?.toUpperCase() || "U"}
+              </Avatar>
+              <div className="user-info">
+                <span className="user-name">{user?.name}</span>
+                <span className="user-role">{user?.role}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <Drawer
+        anchor="left"
+        open={drawerOpen}
+        onClose={toggleDrawer(false)}
+        transitionDuration={400}
+        classes={{ paper: "glass-drawer" }}
+      >
+        <div className="drawer-header">
+          <h3>Teacher Menu</h3>
+          <IconButton onClick={toggleDrawer(false)}>
+            <CloseIcon sx={{ color: "#fff" }} />
+          </IconButton>
         </div>
 
-        {/* Center - Search */}
-        <div className="hidden md:flex flex-1 max-w-md mx-8">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-            <input
-              type="text"
-              placeholder="Search students..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-        </div>
+        <Divider sx={{ bgcolor: "rgba(255,255,255,0.2)" }} />
 
-        {/* Right side */}
-        <div className="flex items-center space-x-4">
-          <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors relative">
-            <Bell size={20} />
-            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white rounded-full text-xs flex items-center justify-center">
-              3
-            </span>
-          </button>
-          
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full flex items-center justify-center shadow-md">
-              <span className="text-white font-semibold text-sm">T</span>
-            </div>
-            <div className="hidden sm:block">
-              <p className="text-sm font-medium text-gray-700">Teacher</p>
-              <p className="text-xs text-gray-500">Online</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </nav>
+        <List>
+          <ListItem button onClick={() => handleNavigation("/teacher/home")}>
+            <HomeIcon sx={{ mr: 2, color: "#4f9efc" }} />
+            <ListItemText primary="Home" />
+          </ListItem>
+
+          <ListItem button onClick={() => handleNavigation("/teacher/records")}>
+            <FolderIcon sx={{ mr: 2, color: "#4f9efc" }} />
+            <ListItemText primary="Records" />
+          </ListItem>
+
+          {/* NEW */}
+          <ListItem button onClick={() => handleNavigation("/teacher/syllabus")}>
+            <DescriptionIcon sx={{ mr: 2, color: "#4f9efc" }} />
+            <ListItemText primary="Add Syllabus" />
+          </ListItem>
+         <ListItem button onClick={() => handleNavigation("/teacher/marks-upload")}>
+            <DescriptionIcon sx={{ mr: 2, color: "#4f9efc" }} />
+            <ListItemText primary="Add Marks" />
+          </ListItem>
+
+          <Divider sx={{ bgcolor: "rgba(255,255,255,0.2)", my: 1 }} />
+
+          <ListItem button onClick={handleLogout}>
+            <LogoutIcon sx={{ mr: 2, color: "#ff5c5c" }} />
+            <ListItemText primary="Logout" />
+          </ListItem>
+        </List>
+      </Drawer>
+    </>
   );
 };
 

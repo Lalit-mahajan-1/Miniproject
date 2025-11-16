@@ -1,0 +1,140 @@
+/* frontend/src/Components/Student/Dashboard.css */
+.student-dashboard {
+  min-height: calc(100vh - 70px);
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  padding: 40px 20px;
+}
+
+.dashboard-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.dashboard-header h1 {
+  font-size: 32px;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.dashboard-header p {
+  color: #666;
+  font-size: 16px;
+}
+
+.risk-cards {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 30px;
+}
+
+.risk-card {
+  background: white;
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  border: 3px solid;
+}
+
+.risk-card.low-risk {
+  border-color: #4caf50;
+}
+
+.risk-card.medium-risk {
+  border-color: #ff9800;
+}
+
+.risk-card.high-risk {
+  border-color: #f44336;
+}
+
+.risk-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.risk-card h2 {
+  font-size: 20px;
+  color: #666;
+  margin-bottom: 16px;
+}
+
+.risk-percentage {
+  font-size: 64px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.low-risk .risk-percentage {
+  color: #4caf50;
+}
+
+.medium-risk .risk-percentage {
+  color: #ff9800;
+}
+
+.high-risk .risk-percentage {
+  color: #f44336;
+}
+
+.risk-category {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.last-updated {
+  color: #999;
+  font-size: 14px;
+}
+
+.info-card, .no-data-card {
+  background: white;
+  border-radius: 16px;
+  padding: 30px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.info-card h3, .no-data-card h3 {
+  font-size: 22px;
+  color: #333;
+  margin-bottom: 20px;
+}
+
+.info-content p {
+  font-size: 16px;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.info-content ul {
+  list-style: none;
+  padding: 0;
+}
+
+.info-content li {
+  padding: 10px 0;
+  padding-left: 24px;
+  position: relative;
+  font-size: 15px;
+  color: #555;
+}
+
+.info-content li:before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #667eea;
+  font-size: 20px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 24px;
+  color: #667eea;
+}
