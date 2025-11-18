@@ -1,10 +1,10 @@
 # app/main.py
 from fastapi import (
-    FastAPI, HTTPException, UploadFile, File, Form, 
-    Depends, BackgroundTasks, APIRouter
+    FastAPI, HTTPException, UploadFile, File, Form,
+    BackgroundTasks, APIRouter
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -14,6 +14,7 @@ import io
 import re
 import os
 import csv
+import json
 
 # OCR deps
 import pytesseract
@@ -21,11 +22,16 @@ from PIL import Image
 import fitz  # PyMuPDF
 
 # Router (chatbot)
-from app.chatbot import rebuild_rag_index, process_user_query
+from app.chatbot import (
+    init_chatbot,
+    rebuild_rag_index,
+    process_user_query,
+    process_user_query_stream,
+)
 
 app = FastAPI(title="Syllabus OCR + Chatbot API")
 
-# -------------------- CORS (MUST BE BEFORE ROUTES) --------------------
+# -------------------- CORS --------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -45,7 +51,6 @@ DATA_DIR = BASE_DIR / "data" / "syllabus"
 UPLOADS_DIR = DATA_DIR / "uploads"
 DB_PATH = DATA_DIR / "db.sqlite3"
 
-# ensure directories exist
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -81,10 +86,18 @@ def init_db():
                 text TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 file_name TEXT,
-                file_path TEXT
+                file_path TEXT,
+                outline_json TEXT
             );
             """
         )
+        # If table existed without outline_json, add it
+        try:
+            cols = [r[1] for r in con.execute("PRAGMA table_info('syllabus')").fetchall()]
+            if "outline_json" not in cols:
+                con.execute("ALTER TABLE syllabus ADD COLUMN outline_json TEXT")
+        except Exception:
+            pass
         con.commit()
 
 def save_subject(name: str, text: str, file_name: Optional[str], file_bytes: Optional[bytes]) -> str:
@@ -99,12 +112,20 @@ def save_subject(name: str, text: str, file_name: Optional[str], file_bytes: Opt
 
     with sqlite3.connect(DB_PATH) as con:
         con.execute(
-            "INSERT INTO syllabus (id, name, text, created_at, file_name, file_path) VALUES (?, ?, ?, ?, ?, ?)",
-            (sid, name, text, created_at, file_name or None, str(saved_path) if saved_path else None),
+            "INSERT INTO syllabus (id, name, text, created_at, file_name, file_path, outline_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sid, name, text, created_at, file_name or None, str(saved_path) if saved_path else None, None),
         )
         con.commit()
 
     return sid
+
+def update_outline(subject_id: str, outline: Dict[str, Any]):
+    with sqlite3.connect(DB_PATH) as con:
+        con.execute(
+            "UPDATE syllabus SET outline_json = ? WHERE id = ?",
+            (json.dumps(outline, ensure_ascii=False), subject_id),
+        )
+        con.commit()
 
 def list_subjects():
     with sqlite3.connect(DB_PATH) as con:
@@ -115,13 +136,22 @@ def list_subjects():
 def get_subject(subject_id: str):
     with sqlite3.connect(DB_PATH) as con:
         con.row_factory = sqlite3.Row
-        row = con.execute("SELECT id, name, text, created_at FROM syllabus WHERE id = ?", (subject_id,)).fetchone()
+        row = con.execute(
+            "SELECT id, name, text, created_at, outline_json FROM syllabus WHERE id = ?",
+            (subject_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+def get_subject_by_name(subject_name: str):
+    with sqlite3.connect(DB_PATH) as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT id, name, text, created_at, outline_json FROM syllabus WHERE LOWER(name) = LOWER(?)",
+            (subject_name.strip(),)
+        ).fetchone()
         return dict(row) if row else None
 
 def get_all_syllabus_data() -> List[Dict[str, str]]:
-    """
-    Fetches all syllabus content to pass to the RAG index builder.
-    """
     with sqlite3.connect(DB_PATH) as con:
         con.row_factory = sqlite3.Row
         rows = con.execute("SELECT name, text FROM syllabus").fetchall()
@@ -129,25 +159,16 @@ def get_all_syllabus_data() -> List[Dict[str, str]]:
 
 # -------------------- RAG Indexing (Background) --------------------
 def run_rag_rebuild():
-    """
-    Fetches all syllabus data and rebuilds the RAG index.
-    This is a blocking (synchronous) function.
-    """
     print("Starting synchronous RAG index rebuild...")
     try:
         syllabus_data = get_all_syllabus_data()
         if not syllabus_data:
             print("No syllabus data found in DB. RAG index will be empty.")
-        
         rebuild_rag_index(syllabus_data)
-        
     except Exception as e:
         print(f"❌ Error during RAG index rebuild: {e}")
 
 def rebuild_index_background(background_tasks: BackgroundTasks):
-    """
-    Adds the RAG index rebuild as a non-blocking background task.
-    """
     print("Queueing RAG index rebuild in background...")
     background_tasks.add_task(run_rag_rebuild)
 
@@ -261,7 +282,7 @@ def compute_risk(row: Dict[str, Any]) -> float:
     project = to_float(get_val(row, "Project_Score"), None)
     study_hours = to_float(get_val(row, "Study_Hours_Per_Week"), None)
     attend = to_float(get_val(row, "Attendance_Percentage"), None)
-    
+
     lec_part = get_val(row, "Lecture_Participation")
     extra_part = get_val(row, "Extracurricular_Participation")
     teacher_fb = to_float(get_val(row, "Teacher_Feedback_Score"), None)
@@ -325,6 +346,75 @@ def compute_risk(row: Dict[str, Any]) -> float:
     risk = clamp(100.0 - protective + penalty, 0.0, 100.0)
     return round(risk, 1)
 
+# -------------------- Chapter/Topic extraction --------------------
+chapter_header = re.compile(
+    r"^\s*(?:chapter|unit|module|part|section)\s*(\d+)?\s*[:.)-]*\s*(.+)$",
+    flags=re.I
+)
+week_header = re.compile(
+    r"^\s*week\s*(\d+)\s*[:.)-]*\s*(.+)?$",
+    flags=re.I
+)
+topic_line = re.compile(
+    r"^\s*(?:[-•*]+|\d+\)|\d+\.\s+|[a-zA-Z]\))\s*(.+?)\s*$"
+)
+
+def extract_outline(text: str) -> Dict[str, Any]:
+    """
+    Heuristic parser to extract chapters and topics from OCR text.
+    Returns: {"chapters": [ {"title": str, "topics": [str, ...]}, ... ]}
+    """
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    chapters: List[Dict[str, Any]] = []
+    current = None
+
+    for ln in lines:
+        m1 = chapter_header.match(ln)
+        m2 = week_header.match(ln)
+
+        if m1:
+            num, title = m1.group(1), m1.group(2) or ""
+            title = title.strip()
+            label = f"Chapter {num}: {title}" if num else f"Chapter: {title}"
+            current = {"title": label, "topics": []}
+            chapters.append(current)
+            continue
+
+        if m2:
+            num, title = m2.group(1), (m2.group(2) or "").strip()
+            label = f"Week {num}" + (f": {title}" if title else "")
+            current = {"title": label, "topics": []}
+            chapters.append(current)
+            continue
+
+        mt = topic_line.match(ln)
+        if mt and current:
+            topic = mt.group(1).strip()
+            if topic and len(topic) > 2:
+                current["topics"].append(topic)
+            continue
+
+        # If there's no explicit bullets but we are inside a chapter,
+        # treat short lines as potential topics
+        if current and 3 <= len(ln) <= 120 and not ln.lower().startswith(("chapter", "unit", "module", "part", "section", "week")):
+            # avoid headings like "Syllabus", "Objectives"
+            if not re.search(r"(syllabus|objective|outcome|policy|grading|assessment)", ln, re.I):
+                current["topics"].append(ln)
+
+    # Fallback: if no chapters detected, build a single chapter from all topic-like lines
+    if not chapters:
+        topics = []
+        for ln in lines:
+            mt = topic_line.match(ln)
+            if mt:
+                topics.append(mt.group(1).strip())
+        if topics:
+            chapters = [{"title": "Syllabus", "topics": topics}]
+
+    # Trim empty chapters
+    chapters = [c for c in chapters if c.get("title") and isinstance(c.get("topics"), list)]
+    return {"chapters": chapters}
+
 # -------------------- Chatbot Router --------------------
 chat_router = APIRouter(prefix="/chat", tags=["Chatbot"])
 
@@ -334,29 +424,39 @@ async def handle_chat_query(
     query: str = Form(...),
     use_rag: bool = Form(True)
 ):
-    """
-    Main endpoint for chatbot.
-    - If use_rag=True, it will try to answer from the syllabus (RAG).
-    - If use_rag=False, it will use general chat.
-    
-    Accepts form-data:
-    - query (str): The user's question.
-    - use_rag (bool): Whether to use the RAG system. Defaults to True.
-    """
     print(f"📩 Received chat query: '{query}' | use_rag={use_rag}")
-    
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
-
     try:
         response = process_user_query(query.strip(), use_rag)
-        print(f"✅ Response generated: {response[:100]}...")
+        print(f"✅ Response generated: {response[:120]}...")
         return {"response": response, "success": True}
     except Exception as e:
         print(f"❌ Chat processing error: {e}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {str(e)}")
+
+@chat_router.post("/stream")
+async def handle_chat_stream(
+    query: str = Form(...),
+    use_rag: bool = Form(True)
+):
+    """
+    Server-Sent Events stream to avoid timeouts in frontend.
+    """
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+
+    def sse():
+        try:
+            for token in process_user_query_stream(query.strip(), use_rag=use_rag):
+                # SSE format: data: <text>\n\n
+                yield f"data: {token}\n\n"
+        except Exception as e:
+            yield f"data: [ERROR] {str(e)}\n\n"
+        finally:
+            yield "event: done\ndata: [END]\n\n"
+
+    return StreamingResponse(sse(), media_type="text/event-stream")
 
 # Attach the chatbot router to the main app
 app.include_router(chat_router)
@@ -398,9 +498,7 @@ async def upload_csv(file_upload: UploadFile = File(...)):
     for r in rows:
         orig_pred = to_float(get_val(r, "predicted_risk_percentage"), None)
         new_risk = compute_risk(r)
-        
-        r["predicted_risk_percentage"] = new_risk 
-        
+        r["predicted_risk_percentage"] = new_risk
         if orig_pred is not None:
             r["_original_predicted_risk_percentage"] = orig_pred
         results.append(r)
@@ -409,8 +507,8 @@ async def upload_csv(file_upload: UploadFile = File(...)):
 
 @app.post("/ocr/syllabus")
 async def upload_syllabus(
-    background_tasks: BackgroundTasks, 
-    subject_name: str = Form(...), 
+    background_tasks: BackgroundTasks,
+    subject_name: str = Form(...),
     file: UploadFile = File(...)
 ):
     if not subject_name or len(subject_name.strip()) < 2:
@@ -436,9 +534,17 @@ async def upload_syllabus(
 
         subject_id = save_subject(subject_name.strip(), extracted_text, filename, file_bytes)
 
+        # Build outline right away and store
+        outline = extract_outline(extracted_text)
+        try:
+            update_outline(subject_id, outline)
+        except Exception as e:
+            print(f"⚠️ Could not save outline JSON: {e}")
+
+        # Rebuild RAG index in background
         rebuild_index_background(background_tasks)
 
-        return {"subject_id": subject_id, "text": extracted_text, "name": subject_name.strip()}
+        return {"subject_id": subject_id, "text": extracted_text, "name": subject_name.strip(), "outline": outline}
     except HTTPException:
         raise
     except Exception as e:
@@ -458,14 +564,47 @@ async def get_syllabus(subject_id: str):
     s = get_subject(subject_id)
     if not s:
         raise HTTPException(status_code=404, detail="Subject not found")
-    return {"id": s["id"], "name": s["name"], "text": s["text"], "created_at": s["created_at"]}
+    return {"id": s["id"], "name": s["name"], "text": s["text"], "created_at": s["created_at"], "outline": json.loads(s["outline_json"] or '{"chapters": []}')}
 
+# ---------- New: Topics APIs used by Dashboard.jsx ----------
+@app.get("/syllabus/topics/{subject_name}")
+async def get_topics_by_subject(subject_name: str):
+    row = get_subject_by_name(subject_name)
+    if not row:
+        raise HTTPException(status_code=404, detail="Subject not found")
 
+    outline = None
+    try:
+        if row["outline_json"]:
+            outline = json.loads(row["outline_json"])
+    except Exception:
+        outline = None
+
+    if not outline:
+        # Parse now, store, then return
+        outline = extract_outline(row["text"] or "")
+        try:
+            update_outline(row["id"], outline)
+        except Exception as e:
+            print(f"⚠️ Could not update outline JSON: {e}")
+
+    return {"subject": row["name"], "chapters": outline.get("chapters", [])}
+
+@app.post("/syllabus/reparse/{subject_id}")
+async def reparse_outline(subject_id: str):
+    row = get_subject(subject_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    outline = extract_outline(row["text"] or "")
+    update_outline(subject_id, outline)
+    return {"subject": row["name"], "chapters": outline.get("chapters", [])}
 
 # -------------------- Startup --------------------
 @app.on_event("startup")
 async def on_startup():
     init_db()
-    print("✅ Database initialized")
+    init_chatbot()   # Ensure models & embeddings are loaded before RAG rebuild
+    print("✅ Models initialized")
     run_rag_rebuild()
     print("✅ Server ready!")

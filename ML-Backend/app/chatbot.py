@@ -1,191 +1,274 @@
 # app/chatbot.py
 
+import os
 import torch
-from threading import Thread
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, TextIteratorStreamer
+import threading
+from typing import List, Dict, Generator
+
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    TextIteratorStreamer,
+)
+
+# Optional 4-bit quant for GPU; fall back gracefully if not installed
+try:
+    from transformers import BitsAndBytesConfig
+    _HAS_BNB = True
+except Exception:
+    BitsAndBytesConfig = None  # type: ignore
+    _HAS_BNB = False
+
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.prompts import PromptTemplate
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-from typing import List, Dict, Generator, Any
 
-# --- MODEL CONFIGURATION ---
-# TinyLlama is a fantastic lightweight but powerful model.
-# It's significantly better than Flan-T5 for Q&A.
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-# BGE-Small is a top-tier embedding model for retrieval.
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+# -------------------- Config --------------------
+DEFAULT_GPU_MODEL = os.getenv("LLM_MODEL_GPU", "Qwen/Qwen2.5-1.5B-Instruct")
+DEFAULT_CPU_MODEL = os.getenv("LLM_MODEL_CPU", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
-# --- GLOBAL VARIABLES ---
-# To avoid reloading models on every request
-llm = None
+# -------------------- Globals --------------------
 tokenizer = None
+llm = None
 embeddings = None
 vectorstore = None
 
+# -------------------- Loader --------------------
 def load_models():
-    """Loads the LLM, Tokenizer, and Embedding models into memory."""
-    global llm, tokenizer, embeddings
+    global tokenizer, llm, embeddings
 
-    if llm and tokenizer and embeddings:
-        print("Models are already loaded.")
+    # Load embeddings (CPU is fine)
+    if embeddings is None:
+        print(f"🔄 Loading Embedding Model: {EMBED_MODEL}...")
+        embeddings = HuggingFaceEmbeddings(
+            model_name=EMBED_MODEL,
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+        print("✅ Embeddings loaded")
+
+    if tokenizer is not None and llm is not None:
         return
 
-    # --- Load Embedding Model ---
-    print(f"🔄 Loading Embedding Model: {EMBED_MODEL}...")
-    embeddings = HuggingFaceEmbeddings(
-        model_name=EMBED_MODEL,
-        model_kwargs={'device': 'cpu'}, # Embeddings are fine on CPU
-        encode_kwargs={'normalize_embeddings': True} # Recommended for BGE
-    )
-    print("✅ Embedding model loaded successfully!")
+    has_cuda = torch.cuda.is_available()
+    model_name = DEFAULT_GPU_MODEL if has_cuda else DEFAULT_CPU_MODEL
+    print(f"🔄 Loading LLM: {model_name} (cuda={has_cuda})...")
 
-    # --- Load LLM and Tokenizer ---
-    print(f"🔄 Loading LLM: {MODEL_NAME}...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    llm = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME, 
-        torch_dtype=torch.float16, # Use float16 for less memory
-        device_map="auto",         # Automatically use GPU if available
-    )
-    print("✅ LLM and Tokenizer loaded successfully!")
+    if has_cuda and _HAS_BNB:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+        tokenizer_local = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        llm_local = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map="auto",
+            quantization_config=bnb_config,
+        )
+    elif has_cuda and not _HAS_BNB:
+        print("⚠️ bitsandbytes not installed; loading in float16 (may use more VRAM).")
+        tokenizer_local = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        llm_local = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
+    else:
+        # CPU fallback
+        tokenizer_local = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        # new transformers shows deprecation warning for torch_dtype; it still works.
+        llm_local = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float32,
+            device_map={"": "cpu"},
+        )
 
+    # Assign globals after everything is loaded
+    tokenizer = tokenizer_local
+    llm = llm_local
 
+    # Ensure pad/eos tokens exist
+    if not hasattr(tokenizer, "pad_token_id") or tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    print("✅ LLM loaded")
+
+def init_chatbot():
+    """Call this on startup to ensure models & embeddings are ready."""
+    load_models()
+
+# -------------------- RAG Index --------------------
 def rebuild_rag_index(syllabus_rows: List[Dict[str, str]]):
-    """Rebuilds the FAISS vector store from syllabus documents."""
     global vectorstore, embeddings
-    
     if embeddings is None:
-        raise RuntimeError("Embeddings model not loaded. Cannot build RAG index.")
-        
+        raise RuntimeError("Embeddings not loaded. Call load_models() first.")
+
     print("🔄 Rebuilding RAG index...")
     if not syllabus_rows:
         print("❗ No syllabus data provided. RAG index will be empty.")
         vectorstore = None
         return False
 
-    all_docs = []
-    # Split text into manageable chunks
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=120)
+    docs = []
 
     for row in syllabus_rows:
-        subject = row.get("name", "Unknown Subject")
-        text = row.get("text", "")
-        if not text.strip():
+        subject = (row.get("name") or "Unknown Subject").strip()
+        text = (row.get("text") or "").strip()
+        if not text:
             continue
-        
-        # Create LangChain Document objects with metadata
         chunks = splitter.split_text(text)
         for i, chunk in enumerate(chunks):
-            doc = Document(
-                page_content=chunk,
-                metadata={"source": subject, "chunk": i}
+            docs.append(
+                Document(page_content=chunk, metadata={"source": subject, "chunk": i})
             )
-            all_docs.append(doc)
 
-    if not all_docs:
-        print("❗ RAG index NOT built: No text chunks found after processing.")
+    if not docs:
+        print("❗ No text chunks found after processing.")
         vectorstore = None
         return False
 
     try:
-        # Create the vector store from the documents and embeddings
-        vectorstore = FAISS.from_documents(documents=all_docs, embedding=embeddings)
-        print(f"✅ RAG Index built successfully with {len(all_docs)} chunks.")
+        vectorstore = FAISS.from_documents(documents=docs, embedding=embeddings)
+        print(f"✅ RAG index built with {len(docs)} chunks.")
         return True
     except Exception as e:
-        print(f"❌ RAG Index build FAILED: {e}")
+        print(f"❌ Failed to build RAG index: {e}")
         vectorstore = None
         return False
 
+# -------------------- Prompt helpers --------------------
+RAG_SYSTEM_PROMPT = (
+    "You are a helpful academic assistant. Answer ONLY from the given context. "
+    "If the answer isn't present, say it isn't available in the uploaded syllabuses. "
+    "Be concise and mention the source subject when possible."
+)
 
-def create_conversational_chain():
-    """Creates the main conversational chain for Q&A."""
-    global llm, tokenizer, vectorstore
+def _build_rag_prompt(question: str, context_blocks: List[Document]) -> str:
+    context_text = []
+    for d in context_blocks:
+        src = d.metadata.get("source", "Unknown Subject")
+        context_text.append(f"[{src}] {d.page_content}")
+    context_joined = "\n\n".join(context_text[:8])
 
-    if not all([llm, tokenizer, vectorstore]):
-        raise RuntimeError("Models and vectorstore must be loaded before creating a chain.")
-
-    # A streamer is used to get the output token-by-token
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
-    
-    # HuggingFacePipeline integrates the local model with LangChain
-    from langchain_huggingface import HuggingFacePipeline
-    hf_pipeline = HuggingFacePipeline(
-        pipeline=pipeline(
-            "text-generation",
-            model=llm,
-            tokenizer=tokenizer,
-            max_new_tokens=512,
-            temperature=0.2,
-            top_p=0.95,
-            repetition_penalty=1.1,
-            streamer=streamer,
-        )
-    )
-
-    # Memory to remember past conversation
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
-    # This prompt template is critical. It's specifically for chat models.
-    PROMPT_TEMPLATE = """
-<|system|>
-You are a helpful and friendly academic assistant. Use the syllabus context below to answer the user's question accurately.
-- Provide answers based ONLY on the provided context.
-- If the answer is not in the context, clearly state that the information is not available in the uploaded syllabuses. DO NOT use your general knowledge.
-- Be concise and clear. Mention the source subject when possible.</s>
-<|user|>
-Context:
-{context}
-
-Question:
-{question}</s>
-<|assistant|>
-"""
-    
-    prompt = PromptTemplate(template=PROMPT_TEMPLATE, input_variables=["context", "question"])
-
-    # The final chain that connects the retriever, memory, and LLM
-    chain = ConversationalRetrievalChain.from_llm(
-        llm=hf_pipeline,
-        retriever=vectorstore.as_retriever(search_kwargs={"k": 4}), # Retrieve top 4 chunks
-        memory=memory,
-        combine_docs_chain_kwargs={"prompt": prompt},
-    )
-    
-    return chain, streamer
-
-
-def process_user_query_stream(query: str) -> Generator[str, Any, None]:
-    """
-    Processes a user query and yields the response token by token (streaming).
-    This is the main function called by the API.
-    """
-    if not vectorstore:
-        yield "I'm sorry, no syllabus has been uploaded yet. Please upload a document first."
-        return
-
+    user_content = f"Context:\n{context_joined}\n\nQuestion:\n{question}\n\nAnswer:"
     try:
-        chain, streamer = create_conversational_chain()
-        
-        # Run the chain in a separate thread to allow for simultaneous generation and streaming
-        def run_chain():
-            chain.invoke({"question": query})
+        prompt = tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": RAG_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    except Exception:
+        prompt = f"<SYS>{RAG_SYSTEM_PROMPT}</SYS>\nUser: {user_content}\nAssistant:"
+    return prompt
 
-        thread = Thread(target=run_chain)
-        thread.start()
+def _build_chat_prompt(query: str) -> str:
+    try:
+        return tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": "You are a concise, helpful assistant."},
+                {"role": "user", "content": query},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    except Exception:
+        return f"Assistant, answer concisely:\n\nUser: {query}\nAssistant:"
 
-        # Yield each new token as it is generated
-        for token in streamer:
-            yield token
+# -------------------- Generation --------------------
+def _generate_text(prompt: str) -> str:
+    # non-streaming generate
+    device = next(llm.parameters()).device
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    out_ids = llm.generate(
+        **inputs,
+        max_new_tokens=512,
+        temperature=0.2,
+        top_p=0.95,
+        repetition_penalty=1.1,
+        do_sample=True,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id,
+    )
+    text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+    # Try to strip the prompt if it's included
+    if text.startswith(prompt):
+        return text[len(prompt):].strip()
+    return text.strip()
 
-        thread.join()
+def _generate_stream(prompt: str) -> Generator[str, None, None]:
+    device = next(llm.parameters()).device
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    gen_kwargs = dict(
+        **inputs,
+        max_new_tokens=512,
+        temperature=0.2,
+        top_p=0.95,
+        repetition_penalty=1.1,
+        do_sample=True,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id,
+        streamer=streamer,
+    )
+    thread = threading.Thread(target=llm.generate, kwargs=gen_kwargs)
+    thread.start()
+    for token in streamer:
+        yield token
+    thread.join()
 
-    except Exception as e:
-        print(f"❌ Error during query processing: {e}")
-        import traceback
-        traceback.print_exc()
-        yield "An error occurred while processing your request. Please check the logs."
+# -------------------- Public API --------------------
+def process_user_query(query: str, use_rag: bool = True) -> str:
+    if not query or not query.strip():
+        return "Query cannot be empty."
+
+    if tokenizer is None or llm is None or embeddings is None:
+        load_models()
+
+    if use_rag:
+        if vectorstore is None:
+            return "No syllabus has been uploaded yet or the index is empty. Please upload and rebuild the index."
+        try:
+            docs = vectorstore.similarity_search(query, k=4)
+        except Exception as e:
+            print(f"❌ Retrieval error: {e}")
+            return "There was an error retrieving context. Please try again."
+        prompt = _build_rag_prompt(query, docs)
+        try:
+            return _generate_text(prompt)
+        except Exception as e:
+            print(f"❌ Generation error: {e}")
+            return "An error occurred while generating the response."
+    else:
+        prompt = _build_chat_prompt(query)
+        try:
+            return _generate_text(prompt)
+        except Exception as e:
+            print(f"❌ Generation error: {e}")
+            return "An error occurred while generating the response."
+
+def process_user_query_stream(query: str, use_rag: bool = True) -> Generator[str, None, None]:
+    if tokenizer is None or llm is None or embeddings is None:
+        load_models()
+
+    if use_rag:
+        if vectorstore is None:
+            yield "No syllabus has been uploaded yet or the index is empty. Please upload and rebuild the index."
+            return
+        try:
+            docs = vectorstore.similarity_search(query, k=4)
+        except Exception as e:
+            yield f"[Retrieval Error] {e}"
+            return
+        prompt = _build_rag_prompt(query, docs)
+        yield from _generate_stream(prompt)
+    else:
+        prompt = _build_chat_prompt(query)
+        yield from _generate_stream(prompt)

@@ -1,140 +1,300 @@
 /* frontend/src/Components/Student/Dashboard.css */
+
+/* ---------- Core theme variables ---------- */
+:root {
+  --bg-1: #0b1020;
+  --bg-2: #0f1b3d;
+  --bg-3: #0b122a;
+  --glass-1: rgba(255, 255, 255, 0.08);
+  --glass-2: rgba(255, 255, 255, 0.04);
+  --glass-3: rgba(255, 255, 255, 0.12);
+  --border-1: rgba(255, 255, 255, 0.12);
+  --border-2: rgba(255, 255, 255, 0.18);
+  --text-1: #e5e7eb;   /* primary text */
+  --text-2: #9ca3af;   /* secondary text */
+  --brand-1: #6e77ff;  /* electric indigo */
+  --brand-2: #7c3aed;  /* royal violet */
+  --brand-3: #10b981;  /* emerald */
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --shadow-1: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- Page background with animated glow ---------- */
 .student-dashboard {
-  min-height: calc(100vh - 70px);
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  padding: 40px 20px;
-}
+  --grad-a: radial-gradient(800px 600px at 10% 10%, rgba(110, 119, 255, 0.18), transparent 60%);
+  --grad-b: radial-gradient(700px 500px at 90% 20%, rgba(124, 58, 237, 0.16), transparent 60%);
+  --grad-c: radial-gradient(600px 600px at 50% 90%, rgba(16, 185, 129, 0.14), transparent 60%);
 
-.dashboard-header {
-  text-align: center;
-  margin-bottom: 40px;
-}
-
-.dashboard-header h1 {
-  font-size: 32px;
-  color: #333;
-  margin-bottom: 8px;
-}
-
-.dashboard-header p {
-  color: #666;
-  font-size: 16px;
-}
-
-.risk-cards {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 30px;
-}
-
-.risk-card {
-  background: white;
-  border-radius: 16px;
-  padding: 40px;
-  text-align: center;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-  border: 3px solid;
-}
-
-.risk-card.low-risk {
-  border-color: #4caf50;
-}
-
-.risk-card.medium-risk {
-  border-color: #ff9800;
-}
-
-.risk-card.high-risk {
-  border-color: #f44336;
-}
-
-.risk-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.risk-card h2 {
-  font-size: 20px;
-  color: #666;
-  margin-bottom: 16px;
-}
-
-.risk-percentage {
-  font-size: 64px;
-  font-weight: 700;
-  margin-bottom: 16px;
-}
-
-.low-risk .risk-percentage {
-  color: #4caf50;
-}
-
-.medium-risk .risk-percentage {
-  color: #ff9800;
-}
-
-.high-risk .risk-percentage {
-  color: #f44336;
-}
-
-.risk-category {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 12px;
-}
-
-.last-updated {
-  color: #999;
-  font-size: 14px;
-}
-
-.info-card, .no-data-card {
-  background: white;
-  border-radius: 16px;
-  padding: 30px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-}
-
-.info-card h3, .no-data-card h3 {
-  font-size: 22px;
-  color: #333;
-  margin-bottom: 20px;
-}
-
-.info-content p {
-  font-size: 16px;
-  margin-bottom: 16px;
-  line-height: 1.6;
-}
-
-.info-content ul {
-  list-style: none;
-  padding: 0;
-}
-
-.info-content li {
-  padding: 10px 0;
-  padding-left: 24px;
   position: relative;
-  font-size: 15px;
-  color: #555;
+  color: var(--text-1);
+  background: linear-gradient(160deg, var(--bg-1), var(--bg-2) 40%, var(--bg-3));
+  min-height: calc(100vh - 64px);
+  overflow: hidden;
 }
 
-.info-content li:before {
-  content: "•";
+.student-dashboard::before,
+.student-dashboard::after {
+  content: "";
   position: absolute;
-  left: 0;
-  color: #667eea;
-  font-size: 20px;
+  inset: -20%;
+  background-image: var(--grad-a), var(--grad-b), var(--grad-c);
+  filter: blur(20px);
+  opacity: 0.9;
+  animation: bgFloat 26s ease-in-out infinite alternate;
+  z-index: 0;
 }
 
-.loading {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
-  font-size: 24px;
-  color: #667eea;
+.student-dashboard::after {
+  animation-duration: 36s;
+  mix-blend-mode: screen;
+  opacity: 0.6;
+}
+
+@keyframes bgFloat {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(0, -20px, 0) scale(1.02); }
+}
+
+/* Ensure content sits above animated layers */
+.student-dashboard > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- Global glass cards ---------- */
+.student-dashboard .MuiCard-root {
+  background: linear-gradient(180deg, var(--glass-1), var(--glass-2));
+  border: 1px solid var(--border-1);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(10px);
+  border-radius: 18px;
+  transition: transform 180ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.student-dashboard .MuiCard-root:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--border-2);
+}
+
+/* ---------- Headings & dividers ---------- */
+.student-dashboard h5, 
+.student-dashboard h6,
+.student-dashboard .MuiTypography-h6,
+.student-dashboard .MuiTypography-h5 {
+  letter-spacing: 0.2px;
+  background: linear-gradient(90deg, #fff, #dfe3ff 30%, #bdb7ff 70%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.student-dashboard .MuiDivider-root {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- Chips with glow ---------- */
+.student-dashboard .MuiChip-root {
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-1);
+}
+
+.student-dashboard .MuiChip-colorError {
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) inset;
+}
+.student-dashboard .MuiChip-colorWarning {
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2) inset;
+}
+.student-dashboard .MuiChip-colorSuccess {
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) inset;
+}
+
+/* ---------- Buttons ---------- */
+.student-dashboard .MuiButton-outlined {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #f1f3ff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.04));
+  backdrop-filter: blur(8px);
+  text-transform: none;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  transition: transform 140ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+.student-dashboard .MuiButton-outlined:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
+}
+
+/* ---------- FAB (chat) glow ---------- */
+.student-dashboard .MuiFab-root {
+  background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+  color: #fff;
+  box-shadow: 0 20px 40px rgba(124, 58, 237, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(6px);
+  animation: fabPulse 2.6s ease-in-out infinite;
+}
+.student-dashboard .MuiFab-root:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 26px 52px rgba(124, 58, 237, 0.56);
+}
+
+@keyframes fabPulse {
+  0%   { box-shadow: 0 18px 36px rgba(124, 58, 237, 0.44); }
+  50%  { box-shadow: 0 18px 46px rgba(124, 58, 237, 0.66); }
+  100% { box-shadow: 0 18px 36px rgba(124, 58, 237, 0.44); }
+}
+
+/* ---------- Circular gauge subtle glow ---------- */
+.student-dashboard .MuiCircularProgress-root {
+  filter: drop-shadow(0 0 12px rgba(110, 119, 255, 0.25));
+}
+
+/* ---------- Accordions (Study Plan) ---------- */
+.student-dashboard .MuiAccordion-root {
+  background: linear-gradient(180deg, var(--glass-1), var(--glass-2));
+  border: 1px solid var(--border-1);
+  border-radius: 16px !important;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.student-dashboard .MuiAccordion-root::before {
+  display: none;
+}
+.student-dashboard .MuiAccordionSummary-root {
+  padding: 0 14px;
+  min-height: 56px;
+}
+.student-dashboard .MuiAccordionSummary-content {
+  margin: 12px 0;
+}
+.student-dashboard .MuiAccordionDetails-root {
+  padding: 0 0 10px 0;
+}
+
+/* ---------- Checklist (topics) ---------- */
+.student-dashboard .MuiFormControlLabel-root {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  transition: background-color 150ms ease, transform 120ms ease;
+}
+.student-dashboard .MuiFormControlLabel-root:hover {
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateX(2px);
+}
+
+.student-dashboard .MuiCheckbox-root.Mui-checked svg {
+  fill: var(--brand-3);
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.45));
+}
+.student-dashboard .MuiFormControlLabel-label {
+  color: var(--text-1);
+  opacity: 0.95;
+}
+
+/* ---------- Tables (history) ---------- */
+.student-dashboard .MuiTable-root {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+.student-dashboard .MuiTableHead-root .MuiTableCell-root {
+  color: #dfe3ff;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.student-dashboard .MuiTableBody-root .MuiTableRow-root {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-1);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+}
+.student-dashboard .MuiTableBody-root .MuiTableCell-root {
+  border-bottom: none;
+}
+
+/* ---------- Cards inside grid (stat cards) ---------- */
+.student-dashboard .MuiGrid-item .MuiCard-root .MuiCardContent-root {
+  padding: 18px 18px 16px 18px;
+}
+.student-dashboard .MuiGrid-item .MuiTypography-h4 {
+  letter-spacing: 0.2px;
+  color: #ffffff;
+}
+
+/* ---------- Alerts / Info Cards ---------- */
+.student-dashboard .MuiCard-root.info-card {
+  border-left: 4px solid var(--brand-3);
+}
+.student-dashboard .MuiCard-root.warn-card {
+  border-left: 4px solid var(--warn);
+}
+.student-dashboard .MuiCard-root.error-card {
+  border-left: 4px solid var(--danger);
+}
+
+/* ---------- Scrollbar styling ---------- */
+.student-dashboard ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.student-dashboard ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(255,255,255,0.25), rgba(255,255,255,0.12));
+  border-radius: 10px;
+  border: 2px solid rgba(11, 16, 32, 0.5);
+}
+.student-dashboard ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- Small utilities ---------- */
+.student-dashboard .muted {
+  color: var(--text-2);
+}
+
+.student-dashboard .shine {
+  position: relative;
+  overflow: hidden;
+}
+.student-dashboard .shine::after {
+  content: "";
+  position: absolute;
+  inset: -200% -100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  animation: shineMove 6s infinite;
+}
+@keyframes shineMove {
+  0%   { transform: translateX(-40%); }
+  100% { transform: translateX(60%); }
+}
+
+/* ---------- Responsive tweaks ---------- */
+@media (max-width: 900px) {
+  .student-dashboard .MuiAccordionSummary-root {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .student-dashboard .MuiCard-root {
+    border-radius: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .student-dashboard .MuiTypography-h4 {
+    font-size: 1.6rem;
+  }
+  .student-dashboard .MuiButton-root {
+    font-size: 0.9rem;
+  }
 }
