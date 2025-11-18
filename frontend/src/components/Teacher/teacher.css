@@ -1,0 +1,133 @@
+/* ===== Dashboard Page Base ===== */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Poppins', sans-serif;
+  background: linear-gradient(135deg, #eef3ff 0%, #f9fcff 100%);
+  min-height: 100vh;
+  color: #333;
+}
+
+.page-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3rem 1.5rem;
+}
+
+/* ===== Upload Card ===== */
+.upload-card {
+  width: 100%;
+  max-width: 650px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 10px 25px rgba(0, 74, 173, 0.1);
+  transition: all 0.3s ease;
+  margin-bottom: 3rem;
+}
+
+.upload-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 30px rgba(0, 74, 173, 0.18);
+}
+
+.upload-card .MuiTypography-h5 {
+  font-weight: 700;
+  background: linear-gradient(90deg, #004aad, #0077ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: 0.5px;
+}
+
+/* ===== Buttons ===== */
+.MuiButton-root {
+  border-radius: 25px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  transition: all 0.3s ease !important;
+}
+
+.MuiButton-outlined {
+  border-color: #004aad !important;
+  color: #004aad !important;
+}
+
+.MuiButton-outlined:hover {
+  background-color: rgba(0, 74, 173, 0.08) !important;
+}
+
+.MuiButton-contained {
+  background: linear-gradient(90deg, #004aad, #0077ff) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 10px rgba(0, 74, 173, 0.25) !important;
+}
+
+.MuiButton-contained:hover {
+  box-shadow: 0 5px 14px rgba(0, 74, 173, 0.4) !important;
+  transform: translateY(-2px);
+}
+
+/* ===== Info Text ===== */
+.upload-card .MuiTypography-root.text-gray-500 {
+  font-size: 0.8rem;
+  margin-top: 0.6rem;
+  color: #6c757d;
+}
+
+/* ===== Stats Section ===== */
+.stats-grid {
+  display: grid;
+  width: 100%;
+  max-width: 1200px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+/* ===== Stat Cards ===== */
+.stat-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 5px 20px rgba(0, 74, 173, 0.08);
+  padding: 1.5rem;
+  text-align: center;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0, 74, 173, 0.15);
+}
+
+.stat-title {
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 0.3rem;
+}
+
+.stat-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+}
+
+/* ===== Results Table Section ===== */
+.results-section {
+  width: 100%;
+  max-width: 1200px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 74, 173, 0.1);
+  overflow: hidden;
+  margin-bottom: 3rem;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .page-container {
+    padding: 1.5rem;
+  }
+
+  .upload-card {
+    margin-bottom: 2rem;
+  }
+}

@@ -1,0 +1,92 @@
+/* frontend/src/Components/ResultsTable.css */
+.table-container {
+  overflow-x: auto;
+  border-radius: 8px;
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.results-table thead {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.results-table th {
+  padding: 14px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.results-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.results-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.results-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.grade-badge {
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.risk-badge {
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-weight: 700;
+  font-size: 13px;
+  display: inline-block;
+}
+
+.risk-badge.low-risk {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.risk-badge.medium-risk {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.risk-badge.high-risk {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.category-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.category-badge.low-risk {
+  background: #c8e6c9;
+  color: #1b5e20;
+}
+
+.category-badge.medium-risk {
+  background: #ffe0b2;
+  color: #e65100;
+}
+
+.category-badge.high-risk {
+  background: #ffcdd2;
+  color: #b71c1c;
+}

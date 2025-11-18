@@ -1,0 +1,152 @@
+/* navbar.css */
+
+/* Consistent sizing and no default page gaps */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Prevent accidental horizontal scroll caused by any element */
+body {
+  overflow-x: hidden;
+}
+
+.navbar {
+  background: linear-gradient(90deg, #1f2937, #111827);
+  color: white;
+  padding: 10px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* 3-column layout: left (menu+brand), center (tagline), right (user) */
+.navbar-container {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Brand */
+.navbar-brand h2 {
+  margin: 0; /* remove default h2 margin for tight alignment */
+  cursor: pointer;
+  font-weight: 600;
+  transition: color 0.3s ease;
+}
+
+.navbar-brand h2:hover {
+  color: #4f9efc;
+}
+
+/* Center tagline */
+.navbar-center {
+  text-align: center;
+  min-width: 0; /* allow center to shrink without causing overflow */
+}
+
+.navbar-center p {
+  margin: 0; /* remove default p margin */
+  font-size: 0.95rem;
+  color: #d1d5db;
+}
+
+/* Right section */
+.navbar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.user-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  text-align: right;
+}
+
+.user-name {
+  font-weight: 600;
+}
+
+.user-role {
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+/* Menu icon aligned left */
+.menu-icon {
+  color: white !important;
+  padding: 6px;
+}
+
+/* Drawer (sidebar) */
+.glass-drawer {
+  background: rgba(31, 41, 55, 0.9) !important;
+  backdrop-filter: blur(14px);
+  color: #ffffff;
+  width: 260px;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Force white text inside the sidebar */
+.glass-drawer .MuiListItemText-primary,
+.glass-drawer .MuiTypography-root,
+.glass-drawer h3 {
+  color: #ffffff !important;
+}
+
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px;
+  color: white;
+}
+
+.MuiListItem-root {
+  border-radius: 6px;
+  margin: 5px 10px;
+  transition: all 0.3s ease;
+}
+
+.MuiListItem-root:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  transform: translateX(4px);
+}
+
+/* Optional: hide tagline on smaller screens to keep right side visible */
+@media (max-width: 1100px) {
+  .navbar-center {
+    display: none;
+  }
+}
+
+/* Dark theme base (kept if you toggle elsewhere) */
+body.dark-theme {
+  background-color: #0f172a;
+  color: white;
+}
