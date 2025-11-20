@@ -1,4 +1,3 @@
-// frontend/src/Components/Student/Chat/ChatWidget.jsx
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import {
@@ -15,67 +14,66 @@ import {
   Stack,
   Paper,
   Switch,
-  FormControlLabel,
   Tooltip,
   Alert,
+  Zoom,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 
-// Main component for the chat dialog
-const ChatWidget = ({ open, onClose, studentContext }) => {
+const ChatWidget = ({ open, onClose }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  // RAG (Syllabus) vs General (Mental Health, etc.)
+  
+  // Default to Syllabus Mode (RAG)
   const [useRag, setUseRag] = useState(true);
 
   const chatEndRef = useRef(null);
-  // Use ML server URL for chatbot (FastAPI on port 8000)
-  const mlServerUrl = import.meta.env.VITE_ML_SERVER_URL;
+  const inputRef = useRef(null);
 
-  // Validate ML server URL
-  useEffect(() => {
-    if (!mlServerUrl) {
-      console.error("❌ VITE_ML_SERVER_URL is not set in environment variables!");
-      setError("Configuration error: ML Server URL not found. Please contact support.");
-    }
-  }, [mlServerUrl]);
+  // 1. Define Server URL with a fallback to localhost:8000
+  const ML_SERVER_URL = import.meta.env.VITE_ML_SERVER_URL || "http://localhost:8000";
+  // const ML_SERVER_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
+  // 2. Scroll to bottom when messages change
+  const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  };
 
-  // Set initial welcome message when dialog opens
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
+
+  // 3. Focus input when opened
   useEffect(() => {
     if (open) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [open]);
+
+  // 4. Set initial welcome message (Check length to prevent React StrictMode duplication)
+  useEffect(() => {
+    if (open && messages.length === 0) {
       setMessages([
         {
           sender: "bot",
-          text: "Hi there! 👋 I'm your AI study assistant.\n\n• Toggle the switch below to ask about your syllabus (RAG mode) or chat generally about stress, study tips, etc.\n• Currently in: " + (useRag ? "Syllabus Mode 📚" : "General Chat Mode 💬"),
+          text: "Hi there! 👋 I'm your AI study assistant.\n\n• Toggle the switch below to ask about your **Syllabus** (RAG mode) or chat generally about **Mental Health & Study Tips**.",
         },
       ]);
-      setError("");
     }
-  }, [open, useRag]);
+  }, [open]);
 
   const handleSend = async (e) => {
     e.preventDefault();
-    
-    if (!input.trim()) {
-      setError("Please type a message before sending.");
-      return;
-    }
 
-    if (!mlServerUrl) {
-      setError("ML Server URL is not configured. Please check your environment settings.");
-      return;
-    }
+    if (!input.trim()) return;
 
     const userMessage = { sender: "user", text: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
@@ -83,73 +81,60 @@ const ChatWidget = ({ open, onClose, studentContext }) => {
     setLoading(true);
     setError("");
 
-    // Create FormData to match backend expectations
+    // Create FormData for FastAPI Form(...)
     const formData = new FormData();
     formData.append("query", userMessage.text);
-    formData.append("use_rag", useRag.toString());
+    formData.append("use_rag", useRag.toString()); // Sends "true" or "false"
 
     try {
-      console.log(`📤 Sending chat request to: ${mlServerUrl}/chat/`);
-      console.log(`   Query: "${userMessage.text}"`);
-      console.log(`   Mode: ${useRag ? "RAG (Syllabus)" : "General Chat"}`);
+      // 5. Axios Call
+      const formData = new FormData();
+formData.append("query", userMessage.text);
 
-      const res = await axios.post(`${mlServerUrl}/chat/`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        timeout: 30000, // 30 second timeout
-      });
+const res = await axios.post(
+  `${ML_SERVER_URL}/chat/gemini`,
+  formData,
+  {
+    headers: { "Content-Type": "multipart/form-data" }
+  }
+);
 
-      console.log("✅ Response received:", res.data);
 
-      const botMessage = {
-        sender: "bot",
-        text: res.data?.response || "I'm not sure how to respond to that. Could you rephrase your question?",
-      };
-      setMessages((prev) => [...prev, botMessage]);
-      
-    } catch (err) {
-      console.error("❌ Chat API error:", err);
-      
-      let errorMsg = "An unexpected error occurred. Please try again.";
-      
-      if (err.code === "ECONNABORTED") {
-        errorMsg = "Request timed out. The server might be busy. Please try again.";
-      } else if (err.response) {
-        // Server responded with error
-        errorMsg = err.response.data?.detail || 
-                   err.response.data?.message || 
-                   `Server error (${err.response.status})`;
-        console.error("Server response:", err.response.data);
-      } else if (err.request) {
-        // Request made but no response
-        errorMsg = "Cannot reach the server. Please check if the backend is running.";
-        console.error("No response from server");
+
+      if (res.data && res.data.success) {
+        setMessages((prev) => [
+          ...prev,
+          { sender: "bot", text: res.data.response },
+        ]);
+      } else {
+        throw new Error("Invalid response format");
       }
+
+    } catch (err) {
+      console.error("Chat Error:", err);
+      const errMsg = err.response?.data?.detail || "Could not connect to the AI server.";
       
-      setError(errorMsg);
       setMessages((prev) => [
         ...prev,
-        { 
-          sender: "bot", 
-          text: `⚠️ ${errorMsg}\n\nIf this persists, please contact your teacher or system administrator.` 
-        },
+        { sender: "bot", text: `⚠️ Error: ${errMsg}` },
       ]);
     } finally {
       setLoading(false);
+      // Keep focus on input after sending
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   };
 
   const handleModeSwitch = (e) => {
     const newMode = e.target.checked;
     setUseRag(newMode);
-    
-    // Add a system message when mode changes
-    const modeMessage = {
-      sender: "system",
-      text: `Switched to ${newMode ? "Syllabus Mode 📚" : "General Chat Mode 💬"}`,
-    };
-    setMessages((prev) => [...prev, modeMessage]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        sender: "system",
+        text: `Switched to ${newMode ? "📚 Syllabus Mode" : "💬 General Chat Mode"}`,
+      },
+    ]);
   };
 
   return (
@@ -158,70 +143,77 @@ const ChatWidget = ({ open, onClose, studentContext }) => {
       onClose={onClose}
       fullWidth
       maxWidth="sm"
-      PaperProps={{ 
-        sx: { 
-          height: "80vh", 
+      TransitionComponent={Zoom} // Nice open animation
+      PaperProps={{
+        sx: {
+          height: "80vh",
           maxHeight: "700px",
+          borderRadius: 3,
           display: "flex",
-          flexDirection: "column"
-        } 
+          flexDirection: "column",
+          overflow: "hidden"
+        },
       }}
     >
+      {/* Header */}
       <DialogTitle
         sx={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          pb: 1,
-          borderBottom: "1px solid #e5e7eb"
+          bgcolor: "primary.main",
+          color: "white",
+          py: 1.5,
         }}
       >
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            AI Study Assistant
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {useRag ? "📚 Syllabus Mode" : "💬 General Chat Mode"}
-          </Typography>
-        </Box>
-        <IconButton onClick={onClose} aria-label="close">
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <SmartToyIcon />
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+              AI Assistant
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>
+              {useRag ? "Searching Syllabus Documents" : "General Support Chat"}
+            </Typography>
+          </Box>
+        </Stack>
+        <IconButton onClick={onClose} sx={{ color: "white" }}>
           <CloseRoundedIcon />
         </IconButton>
       </DialogTitle>
 
-      <DialogContent 
-        dividers 
-        sx={{ 
-          p: 0, 
-          bgcolor: "#f9fafb",
+      {/* Chat Area */}
+      <DialogContent
+        sx={{
+          p: 2,
+          bgcolor: "#f4f6f8",
           flex: 1,
-          overflow: "hidden"
+          display: "flex",
+          flexDirection: "column",
         }}
       >
-        <Stack sx={{ height: "100%", p: 2, overflowY: "auto" }}>
+        <Stack spacing={2}>
           {messages.map((msg, index) => (
-            <ChatMessage 
-              key={index} 
-              sender={msg.sender} 
-              text={msg.text} 
-            />
+            <ChatMessage key={index} sender={msg.sender} text={msg.text} />
           ))}
+
           {loading && (
-            <Box sx={{ display: "flex", justifyContent: "flex-start", mb: 1 }}>
+            <Box sx={{ display: "flex", justifyContent: "flex-start" }}>
               <Paper
-                elevation={0}
                 sx={{
-                  px: 1.5,
-                  py: 1,
-                  bgcolor: "#e5e7eb",
-                  borderRadius: "12px 12px 12px 0",
+                  px: 2,
+                  py: 1.5,
+                  bgcolor: "white",
+                  borderRadius: "18px 18px 18px 0",
                   display: "flex",
                   alignItems: "center",
-                  gap: 1
+                  gap: 1,
                 }}
               >
-                <CircularProgress size={16} />
-                <Typography variant="caption">Thinking...</Typography>
+                <CircularProgress size={14} />
+                <Typography variant="caption" color="text.secondary">
+                  Thinking...
+                </Typography>
               </Paper>
             </Box>
           )}
@@ -229,112 +221,134 @@ const ChatWidget = ({ open, onClose, studentContext }) => {
         </Stack>
       </DialogContent>
 
-      <DialogActions sx={{ p: 1.5, display: "block", bgcolor: "#fff" }}>
-        {error && (
-          <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError("")}>
-            {error}
-          </Alert>
-        )}
-        
-        <Stack direction="row" spacing={1} component="form" onSubmit={handleSend}>
+      {/* Input Area */}
+      <DialogActions
+        sx={{
+          p: 2,
+          bgcolor: "white",
+          borderTop: "1px solid #e0e0e0",
+          display: "flex",
+          flexDirection: "column",
+          gap: 1
+        }}
+      >
+        {/* Toggle Switch */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          sx={{ width: "100%", justifyContent: "center", mb: 1 }}
+        >
+          <Tooltip title="General Chat / Mental Health">
+            <ForumRoundedIcon
+              fontSize="small"
+              color={!useRag ? "primary" : "action"}
+            />
+          </Tooltip>
+          <Switch
+            checked={useRag}
+            onChange={handleModeSwitch}
+            size="small"
+          />
+          <Tooltip title="Ask Syllabus Questions">
+            <SchoolRoundedIcon
+              fontSize="small"
+              color={useRag ? "primary" : "action"}
+            />
+          </Tooltip>
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+            {useRag ? "Syllabus Mode" : "General Mode"}
+          </Typography>
+        </Stack>
+
+        {/* Input Field */}
+        <Stack
+          component="form"
+          onSubmit={handleSend}
+          direction="row"
+          spacing={1}
+          sx={{ width: "100%" }}
+        >
           <TextField
+            inputRef={inputRef}
             fullWidth
             size="small"
-            variant="outlined"
-            placeholder={useRag ? "Ask about your syllabus..." : "How can I help you today?"}
+            placeholder={
+              useRag
+                ? "e.g., 'What are the modules in Python?'"
+                : "e.g., 'I feel stressed about exams'"
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={loading}
-            autoFocus
+            sx={{ 
+              "& .MuiOutlinedInput-root": { borderRadius: 3 } 
+            }}
           />
           <Button
             type="submit"
             variant="contained"
             disabled={loading || !input.trim()}
-            sx={{ px: 2.5, minWidth: "auto" }}
+            sx={{ 
+              borderRadius: 3, 
+              minWidth: "50px", 
+              height: "40px" 
+            }}
           >
-            <SendRoundedIcon />
+            <SendRoundedIcon fontSize="small" />
           </Button>
-        </Stack>
-        
-        <Stack
-          direction="row"
-          justifyContent="center"
-          alignItems="center"
-          sx={{ mt: 1.5 }}
-        >
-          <Tooltip title="General Chat / Mental Health Support">
-            <ForumRoundedIcon
-              fontSize="small"
-              color={!useRag ? "primary" : "disabled"}
-            />
-          </Tooltip>
-          <Switch
-            size="small"
-            checked={useRag}
-            onChange={handleModeSwitch}
-            inputProps={{ "aria-label": "Chat mode toggle" }}
-          />
-          <Tooltip title="Syllabus Questions (RAG)">
-            <SchoolRoundedIcon
-              fontSize="small"
-              color={useRag ? "primary" : "disabled"}
-            />
-          </Tooltip>
         </Stack>
       </DialogActions>
     </Dialog>
   );
 };
 
-// Helper component to render individual messages
+// --- Helper Message Component ---
 const ChatMessage = ({ sender, text }) => {
   const isUser = sender === "user";
   const isSystem = sender === "system";
-  
+
   if (isSystem) {
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", my: 1 }}>
-        <Typography 
-          variant="caption" 
-          sx={{ 
-            bgcolor: "#f3f4f6", 
-            px: 2, 
-            py: 0.5, 
-            borderRadius: 2,
-            color: "text.secondary"
-          }}
-        >
+      <Box sx={{ display: "flex", justifyContent: "center", opacity: 0.8 }}>
+        <Typography variant="caption" sx={{ color: "text.secondary", fontStyle: "italic" }}>
           {text}
         </Typography>
       </Box>
     );
   }
-  
+
   return (
     <Box
       sx={{
         display: "flex",
         justifyContent: isUser ? "flex-end" : "flex-start",
-        mb: 1.5,
       }}
     >
       <Paper
-        elevation={0}
+        elevation={isUser ? 4 : 1}
         sx={{
-          px: 1.5,
-          py: 1,
-          maxWidth: "80%",
-          bgcolor: isUser ? "primary.main" : "#e5e7eb",
-          color: isUser ? "primary.contrastText" : "text.primary",
-          borderRadius: isUser
-            ? "12px 12px 0 12px"
-            : "12px 12px 12px 0",
-          whiteSpace: "pre-wrap",
-          wordWrap: "break-word",
+          px: 2,
+          py: 1.5,
+          maxWidth: "75%",
+          bgcolor: isUser ? "primary.main" : "white",
+          color: isUser ? "white" : "text.primary",
+          borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+          position: "relative",
         }}
       >
-        <Typography variant="body2">{text}</Typography>
+        <Typography
+          variant="body2"
+          sx={{
+            whiteSpace: "pre-wrap", // Preserves line breaks from bot
+            wordBreak: "break-word",
+          }}
+        >
+            {/* Handle simplified markdown (bolding) */}
+            {text.split("**").map((part, i) => 
+              i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+            )}
+        </Typography>
       </Paper>
     </Box>
   );

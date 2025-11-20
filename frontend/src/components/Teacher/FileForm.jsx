@@ -22,7 +22,6 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ResultsTable from "./ResultsTable";
 import Papa from "papaparse";
-import "./FileForm.css";
 
 const CountUp = ({ value = 0, decimals = 0, duration = 1200, suffix = "" }) => {
   const [display, setDisplay] = useState(0);
@@ -129,6 +128,7 @@ const FileForm = () => {
 
   const handlePredict = async () => {
     if (!file) return setErr("Please select a CSV file first!");
+
     const formData = new FormData();
     formData.append("file_upload", file);
 
@@ -136,17 +136,37 @@ const FileForm = () => {
       setLoading(true);
       setErr("");
       setInfoMsg("");
-      const mlUrl = import.meta.env.VITE_ML_SERVER_URL;
-      const mlRes = await axios.post(`${mlUrl}/uploadfile/`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+
+      const base =
+        import.meta.env.VITE_ML_SERVER_URL ||
+        import.meta.env.VITE_API_URL ||
+        window.location.origin;
+      const mlUrl = `${base}`.replace(/\/+$/, ""); // strip trailing slash
+
+      const mlRes = await axios.post(`${mlUrl}/uploadfile`, formData, {
+        // Do not set Content-Type; browser sets proper multipart boundary
         timeout: 60000,
       });
+
       const predictedData = mlRes.data?.data || [];
       setData(predictedData);
       setInfoMsg("Prediction completed successfully!");
     } catch (error) {
       console.error("Prediction error:", error);
-      setErr(error.response?.data?.detail || "Prediction failed. Try again.");
+      let msg =
+        error?.response?.data?.detail ||
+        error?.response?.statusText ||
+        error?.message ||
+        "Prediction failed. Try again.";
+      // Friendlier message for server-down cases
+      if (error?.code === "ERR_NETWORK") {
+        const base =
+          import.meta.env.VITE_ML_SERVER_URL ||
+          import.meta.env.VITE_API_URL ||
+          window.location.origin;
+        msg = `Cannot reach ML server at ${base}/uploadfile. Is it running?`;
+      }
+      setErr(msg);
     } finally {
       setLoading(false);
     }
@@ -157,20 +177,25 @@ const FileForm = () => {
       return setErr("No predictions to save. Upload & Predict first!");
     try {
       setSaving(true);
-      const apiUrl = import.meta.env.VITE_API_URL;
-      const res = await axios.post(`${apiUrl}/api/student-risks/save-batch`, {
+      const apiUrl =
+        import.meta.env.VITE_API_URL || window.location.origin;
+      const res = await axios.post(`${apiUrl.replace(/\/+$/, "")}/api/student-risks/save-batch`, {
         students: data,
         fileName: file?.name || undefined,
-        // createdBy: user?.email  // optional if you have AuthContext here
       });
       navigate(`/teacher/records?batchId=${res.data?.batchId}`);
     } catch (error) {
       console.error("Save error:", error);
-      setErr("Failed to save results.");
+      setErr(
+        error?.response?.data?.detail ||
+          error?.response?.statusText ||
+          "Failed to save results."
+      );
     } finally {
       setSaving(false);
     }
   };
+
   const stats = useMemo(() => {
     if (!data.length) return null;
     const risks = data.map((r) => Number(r.predicted_risk_percentage || 0));
@@ -298,7 +323,6 @@ const FileForm = () => {
           </Typography>
 
           <div className="insights-grid">
-            {/* Donut gauge for average risk */}
             <div
               className="gauge-card"
               style={{
@@ -321,7 +345,6 @@ const FileForm = () => {
               </div>
             </div>
 
-            {/* High/Med/Low cards with count-up */}
             <div className="levels-grid">
               <div className="level-card high">
                 <div className="level-top">
@@ -369,7 +392,6 @@ const FileForm = () => {
               </div>
             </div>
 
-            {/* Distribution bar */}
             <div className="distribution-card">
               <div className="distribution-bar">
                 <div
@@ -415,7 +437,6 @@ const FileForm = () => {
         </Box>
       )}
 
-      {/* Full Prediction Table */}
       {data.length > 0 && (
         <div className="results-table-container">
           <Typography variant="h6" className="results-title">
