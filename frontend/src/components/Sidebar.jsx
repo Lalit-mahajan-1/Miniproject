@@ -1,85 +1,139 @@
-import React from 'react';
-import { X, Home, Upload, UserPlus, BarChart3, Settings, LogOut } from 'lucide-react';
+// frontend/src/Components/Sidebar.jsx
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  FiX,
+  FiHome,
+  FiFolder,
+  FiLogOut,
+  FiBookOpen,
+  FiUsers
+} from "react-icons/fi";
+import { HiOutlineDocumentAdd } from "react-icons/hi";
 
-const Sidebar = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen }) => {
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home, color: 'text-blue-600' },
-    { id: 'upload', label: 'Upload CSV', icon: Upload, color: 'text-green-600' },
-    { id: 'custom', label: 'Add Student', icon: UserPlus, color: 'text-purple-600' },
-    { id: 'reports', label: 'Reports', icon: BarChart3, color: 'text-orange-600' },
-  ];
+import { AuthContext } from "../context/AuthContext";
+import { useContext } from "react";
 
-  const handleItemClick = (id) => {
-    setActiveTab(id);
-    setSidebarOpen(false);
+const Sidebar = ({ isDesktop, drawerOpen, setDrawerOpen }) => {
+  const navigate = useNavigate();
+  const { logout } = useContext(AuthContext);
+
+  const handleNavigation = (path) => {
+    navigate(path);
+    if (!isDesktop) setDrawerOpen(false);
   };
 
   return (
     <>
-      {/* Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+      {/* Background overlay for mobile */}
+      {!isDesktop && drawerOpen && (
+        <div
+          onClick={() => setDrawerOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 animate-fade-in"
         />
       )}
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 transform transition-transform duration-300 ease-in-out ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      } lg:translate-x-0 lg:static lg:inset-0`}>
-        
+      <div
+        className={`
+        fixed top-0 left-0 h-full w-72 bg-white shadow-xl border-r border-gray-200 z-50
+        transform transition-transform duration-300
+        ${drawerOpen ? "translate-x-0" : "-translate-x-full"}
+      `}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between h-16 px-6 bg-gray-800">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">E</span>
-            </div>
-            <span className="text-white font-semibold">EduAnalytics</span>
-          </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-gray-300 hover:text-white p-1"
-          >
-            <X size={20} />
-          </button>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800">Teacher Menu</h3>
+
+          {!isDesktop && (
+            <button
+              onClick={() => setDrawerOpen(false)}
+              className="p-2 rounded-md hover:bg-gray-100 transition"
+            >
+              <FiX className="w-6 h-6 text-gray-700" />
+            </button>
+          )}
         </div>
 
-        {/* Navigation */}
-        <nav className="mt-8 px-4">
-          <div className="space-y-2">
-            {menuItems.map(({ id, label, icon: Icon, color }) => (
-              <button
-                key={id}
-                onClick={() => handleItemClick(id)}
-                className={`w-full flex items-center px-4 py-3 rounded-lg text-left transition-all duration-200 ${
-                  activeTab === id 
-                    ? 'bg-gray-800 text-white shadow-lg border-l-4 border-blue-500' 
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`}
-              >
-                <Icon size={20} className={`mr-3 ${activeTab === id ? 'text-blue-400' : color}`} />
-                <span className="font-medium">{label}</span>
-                {activeTab === id && (
-                  <div className="ml-auto w-2 h-2 bg-blue-400 rounded-full"></div>
-                )}
-              </button>
-            ))}
-          </div>
+        {/* Menu list */}
+        <div className="py-4">
+          <button
+            onClick={() => handleNavigation("/teacher/home")}
+            className="menu-btn"
+          >
+            <FiHome className="icon-blue" />
+            Home
+          </button>
 
-          {/* Bottom Section */}
-          <div className="absolute bottom-8 left-4 right-4 space-y-2">
-            <button className="w-full flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white rounded-lg transition-colors">
-              <Settings size={20} className="mr-3 text-gray-400" />
-              <span>Settings</span>
-            </button>
-            <button className="w-full flex items-center px-4 py-3 text-gray-300 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
-              <LogOut size={20} className="mr-3 text-red-400" />
-              <span>Logout</span>
-            </button>
-          </div>
-        </nav>
+          <button
+            onClick={() => handleNavigation("/teacher/records")}
+            className="menu-btn"
+          >
+            <FiFolder className="icon-blue" />
+            Records
+          </button>
+
+          <button
+            onClick={() => handleNavigation("/teacher/syllabus")}
+            className="menu-btn"
+          >
+            <HiOutlineDocumentAdd className="icon-blue" />
+            Add Syllabus
+          </button>
+
+          <button
+            onClick={() => handleNavigation("/teacher/marks-upload")}
+            className="menu-btn"
+          >
+            <FiBookOpen className="icon-blue" />
+            Add Marks
+          </button>
+
+          <button
+  onClick={() => handleNavigation("/teacher/mentorship")}
+  className="menu-btn"
+>
+  <FiUsers className="icon-blue" />
+  Mentorship
+</button>
+
+
+          <div className="my-3 border-t border-gray-200" />
+
+          <button
+            onClick={() => {
+              logout();
+              navigate("/login");
+            }}
+            className="menu-btn text-red-600 font-medium"
+          >
+            <FiLogOut className="w-5 h-5" />
+            Logout
+          </button>
+        </div>
       </div>
+
+      {/* Small helper classes */}
+      <style>{`
+        .menu-btn {
+          width: 100%;
+          display: flex;
+          gap: 12px;
+          padding: 12px 20px;
+          align-items: center;
+          text-align: left;
+          color: #374151;
+          transition: 0.2s;
+        }
+        .menu-btn:hover {
+          background: #f3f4f6;
+        }
+        .icon-blue {
+          width: 20px;
+          height: 20px;
+          color: #3b82f6;
+        }
+      `}</style>
     </>
   );
 };

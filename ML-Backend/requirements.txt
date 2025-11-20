@@ -33,3 +33,5 @@ pandas==2.2.2
 
 # CORS
 python-jose==3.3.0
+
+easyocr==1.7.1

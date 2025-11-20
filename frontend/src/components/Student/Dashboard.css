@@ -1,5 +1,3 @@
-/* frontend/src/Components/Student/Dashboard.css */
-
 /* ---------- Core theme variables ---------- */
 :root {
   --bg-1: #0b1020;
@@ -63,187 +61,6 @@
   z-index: 1;
 }
 
-/* ---------- Global glass cards ---------- */
-.student-dashboard .MuiCard-root {
-  background: linear-gradient(180deg, var(--glass-1), var(--glass-2));
-  border: 1px solid var(--border-1);
-  box-shadow: var(--shadow-1);
-  backdrop-filter: blur(10px);
-  border-radius: 18px;
-  transition: transform 180ms ease, box-shadow 220ms ease, border-color 220ms ease;
-}
-
-.student-dashboard .MuiCard-root:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-2);
-  border-color: var(--border-2);
-}
-
-/* ---------- Headings & dividers ---------- */
-.student-dashboard h5, 
-.student-dashboard h6,
-.student-dashboard .MuiTypography-h6,
-.student-dashboard .MuiTypography-h5 {
-  letter-spacing: 0.2px;
-  background: linear-gradient(90deg, #fff, #dfe3ff 30%, #bdb7ff 70%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.student-dashboard .MuiDivider-root {
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-/* ---------- Chips with glow ---------- */
-.student-dashboard .MuiChip-root {
-  border-radius: 10px;
-  backdrop-filter: blur(6px);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--border-1);
-}
-
-.student-dashboard .MuiChip-colorError {
-  color: #fff;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) inset;
-}
-.student-dashboard .MuiChip-colorWarning {
-  color: #fff;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2) inset;
-}
-.student-dashboard .MuiChip-colorSuccess {
-  color: #fff;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) inset;
-}
-
-/* ---------- Buttons ---------- */
-.student-dashboard .MuiButton-outlined {
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #f1f3ff;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.04));
-  backdrop-filter: blur(8px);
-  text-transform: none;
-  border-radius: 12px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-  transition: transform 140ms ease, box-shadow 180ms ease, border-color 180ms ease;
-}
-.student-dashboard .MuiButton-outlined:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.28);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
-}
-
-/* ---------- FAB (chat) glow ---------- */
-.student-dashboard .MuiFab-root {
-  background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
-  color: #fff;
-  box-shadow: 0 20px 40px rgba(124, 58, 237, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(6px);
-  animation: fabPulse 2.6s ease-in-out infinite;
-}
-.student-dashboard .MuiFab-root:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 26px 52px rgba(124, 58, 237, 0.56);
-}
-
-@keyframes fabPulse {
-  0%   { box-shadow: 0 18px 36px rgba(124, 58, 237, 0.44); }
-  50%  { box-shadow: 0 18px 46px rgba(124, 58, 237, 0.66); }
-  100% { box-shadow: 0 18px 36px rgba(124, 58, 237, 0.44); }
-}
-
-/* ---------- Circular gauge subtle glow ---------- */
-.student-dashboard .MuiCircularProgress-root {
-  filter: drop-shadow(0 0 12px rgba(110, 119, 255, 0.25));
-}
-
-/* ---------- Accordions (Study Plan) ---------- */
-.student-dashboard .MuiAccordion-root {
-  background: linear-gradient(180deg, var(--glass-1), var(--glass-2));
-  border: 1px solid var(--border-1);
-  border-radius: 16px !important;
-  margin-bottom: 10px;
-  overflow: hidden;
-}
-.student-dashboard .MuiAccordion-root::before {
-  display: none;
-}
-.student-dashboard .MuiAccordionSummary-root {
-  padding: 0 14px;
-  min-height: 56px;
-}
-.student-dashboard .MuiAccordionSummary-content {
-  margin: 12px 0;
-}
-.student-dashboard .MuiAccordionDetails-root {
-  padding: 0 0 10px 0;
-}
-
-/* ---------- Checklist (topics) ---------- */
-.student-dashboard .MuiFormControlLabel-root {
-  margin: 6px 0;
-  padding: 6px 10px;
-  border-radius: 10px;
-  transition: background-color 150ms ease, transform 120ms ease;
-}
-.student-dashboard .MuiFormControlLabel-root:hover {
-  background: rgba(255, 255, 255, 0.06);
-  transform: translateX(2px);
-}
-
-.student-dashboard .MuiCheckbox-root.Mui-checked svg {
-  fill: var(--brand-3);
-  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.45));
-}
-.student-dashboard .MuiFormControlLabel-label {
-  color: var(--text-1);
-  opacity: 0.95;
-}
-
-/* ---------- Tables (history) ---------- */
-.student-dashboard .MuiTable-root {
-  border-collapse: separate;
-  border-spacing: 0 8px;
-}
-
-.student-dashboard .MuiTableHead-root .MuiTableCell-root {
-  color: #dfe3ff;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  font-size: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.student-dashboard .MuiTableBody-root .MuiTableRow-root {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--border-1);
-  box-shadow: 0 4px 18px rgba(0,0,0,0.18);
-}
-.student-dashboard .MuiTableBody-root .MuiTableCell-root {
-  border-bottom: none;
-}
-
-/* ---------- Cards inside grid (stat cards) ---------- */
-.student-dashboard .MuiGrid-item .MuiCard-root .MuiCardContent-root {
-  padding: 18px 18px 16px 18px;
-}
-.student-dashboard .MuiGrid-item .MuiTypography-h4 {
-  letter-spacing: 0.2px;
-  color: #ffffff;
-}
-
-/* ---------- Alerts / Info Cards ---------- */
-.student-dashboard .MuiCard-root.info-card {
-  border-left: 4px solid var(--brand-3);
-}
-.student-dashboard .MuiCard-root.warn-card {
-  border-left: 4px solid var(--warn);
-}
-.student-dashboard .MuiCard-root.error-card {
-  border-left: 4px solid var(--danger);
-}
-
 /* ---------- Scrollbar styling ---------- */
 .student-dashboard ::-webkit-scrollbar {
   width: 10px;
@@ -263,38 +80,76 @@
   color: var(--text-2);
 }
 
-.student-dashboard .shine {
-  position: relative;
-  overflow: hidden;
+/* ---------- Marks table card ---------- */
+.marks-table-card {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.9));
+  border-radius: 18px;
+  border: 1px solid var(--border-1);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(10px);
+  color: var(--text-1);
 }
-.student-dashboard .shine::after {
-  content: "";
-  position: absolute;
-  inset: -200% -100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
-  animation: shineMove 6s infinite;
+
+/* ---------- Marks table ---------- */
+.marks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
 }
-@keyframes shineMove {
-  0%   { transform: translateX(-40%); }
-  100% { transform: translateX(60%); }
+
+.marks-table thead th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+  color: #dfe3ff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.marks-table tbody tr {
+  transition: background-color 150ms ease, transform 120ms ease, box-shadow 160ms ease;
+}
+
+.marks-table tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.95);
+}
+.marks-table tbody tr:nth-child(odd) {
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.marks-table tbody tr:hover {
+  background: rgba(31, 41, 55, 0.95);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.marks-table tbody td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  color: #e5e7eb;
+}
+
+.marks-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Percentage highlight */
+.marks-table tbody td:last-child {
+  font-weight: 600;
+  color: var(--brand-3);
 }
 
 /* ---------- Responsive tweaks ---------- */
 @media (max-width: 900px) {
-  .student-dashboard .MuiAccordionSummary-root {
-    padding-left: 10px;
-    padding-right: 10px;
-  }
-  .student-dashboard .MuiCard-root {
+  .marks-table-card {
     border-radius: 16px;
   }
 }
 
 @media (max-width: 600px) {
-  .student-dashboard .MuiTypography-h4 {
-    font-size: 1.6rem;
-  }
-  .student-dashboard .MuiButton-root {
-    font-size: 0.9rem;
+  .marks-table thead th,
+  .marks-table tbody td {
+    padding: 0.4rem 0.5rem;
   }
 }

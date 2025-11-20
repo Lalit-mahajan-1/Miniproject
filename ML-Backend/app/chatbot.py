@@ -1,274 +1,267 @@
-# app/chatbot.py
-
 import os
-import torch
-import threading
-from typing import List, Dict, Generator
+import re
+import json
+import asyncio
+import httpx
+from typing import List, Dict, Any, Generator
 
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    TextIteratorStreamer,
-)
+# -------------------- Configuration --------------------
+MARKS_API_URL = "http://localhost:5000/api/marks/me"
+LOCAL_API_BASE = "http://127.0.0.1:8000"
 
-# Optional 4-bit quant for GPU; fall back gracefully if not installed
+# -------------------- Robust Dependency Loading --------------------
+# We wrap imports in try/except so the server NEVER crashes with 503
+# even if you haven't installed the AI libraries.
+HAS_ML = False
 try:
-    from transformers import BitsAndBytesConfig
-    _HAS_BNB = True
-except Exception:
-    BitsAndBytesConfig = None  # type: ignore
-    _HAS_BNB = False
+    from sentence_transformers import SentenceTransformer
+    import faiss
+    import numpy as np
+    HAS_ML = True
+except ImportError as e:
+    print(f"⚠️ [Chatbot] ML libraries not found: {e}")
+    print("⚠️ [Chatbot] Running in KEYWORD SEARCH mode (No AI embeddings).")
 
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
+class SyllabusChatbot:
+    def __init__(self):
+        self.model = None
+        self.index = None
+        self.chunks = []
+        self.is_ready = False
 
-# -------------------- Config --------------------
-DEFAULT_GPU_MODEL = os.getenv("LLM_MODEL_GPU", "Qwen/Qwen2.5-1.5B-Instruct")
-DEFAULT_CPU_MODEL = os.getenv("LLM_MODEL_CPU", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+    def initialize(self):
+        """Load AI models if available."""
+        if HAS_ML:
+            try:
+                print("⏳ [Chatbot] Loading embedding model...")
+                self.model = SentenceTransformer('all-MiniLM-L6-v2')
+                self.is_ready = True
+                print("✅ [Chatbot] AI Model loaded successfully.")
+            except Exception as e:
+                print(f"❌ [Chatbot] Model load failed: {e}")
+                self.is_ready = False
+        else:
+            print("ℹ️ [Chatbot] Skipping model load (ML deps missing).")
 
-# -------------------- Globals --------------------
-tokenizer = None
-llm = None
-embeddings = None
-vectorstore = None
+    def build_index(self, syllabus_data: List[Dict[str, str]]):
+        """Ingest syllabus text into memory."""
+        self.chunks = []
+        
+        # 1. Text Chunking
+        print(f"🔄 [Chatbot] Indexing {len(syllabus_data)} subjects...")
+        for item in syllabus_data:
+            subject = item.get("name", "General")
+            text = item.get("text", "")
+            
+            # Split by double newlines to get paragraphs
+            raw_parts = text.split("\n\n")
+            for part in raw_parts:
+                clean_part = part.strip()
+                if len(clean_part) > 30:  # Skip very short noise
+                    # Store as: "Subject Name: The actual text content"
+                    self.chunks.append(f"**{subject}**: {clean_part}")
 
-# -------------------- Loader --------------------
-def load_models():
-    global tokenizer, llm, embeddings
+        if not self.chunks:
+            print("⚠️ [Chatbot] No text found to index.")
+            return
 
-    # Load embeddings (CPU is fine)
-    if embeddings is None:
-        print(f"🔄 Loading Embedding Model: {EMBED_MODEL}...")
-        embeddings = HuggingFaceEmbeddings(
-            model_name=EMBED_MODEL,
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
-        print("✅ Embeddings loaded")
+        # 2. Vector Embedding (only if ML is enabled)
+        if self.is_ready and HAS_ML:
+            try:
+                embeddings = self.model.encode(self.chunks)
+                dimension = embeddings.shape[1]
+                self.index = faiss.IndexFlatL2(dimension)
+                self.index.add(np.array(embeddings).astype('float32'))
+                print(f"✅ [Chatbot] Vector index built with {len(self.chunks)} chunks.")
+            except Exception as e:
+                print(f"❌ [Chatbot] Index build failed: {e}")
+                self.index = None
+        else:
+            print(f"✅ [Chatbot] Keyword index ready ({len(self.chunks)} chunks).")
 
-    if tokenizer is not None and llm is not None:
-        return
+    def search(self, query: str, top_k=3) -> List[str]:
+        """Find relevant info using AI or Keywords."""
+        if not self.chunks:
+            return []
 
-    has_cuda = torch.cuda.is_available()
-    model_name = DEFAULT_GPU_MODEL if has_cuda else DEFAULT_CPU_MODEL
-    print(f"🔄 Loading LLM: {model_name} (cuda={has_cuda})...")
+        # A. AI Vector Search
+        if self.is_ready and self.index is not None and HAS_ML:
+            try:
+                q_vec = self.model.encode([query])
+                D, I = self.index.search(np.array(q_vec).astype('float32'), top_k)
+                results = []
+                for idx in I[0]:
+                    if 0 <= idx < len(self.chunks):
+                        results.append(self.chunks[idx])
+                return results
+            except Exception as e:
+                print(f"⚠️ Search error: {e}")
+        
+        # B. Fallback: Keyword Search
+        query_lower = query.lower()
+        # Simple ranking: count how many query words appear in the chunk
+        query_words = [w for w in query_lower.split() if len(w) > 3]
+        
+        scores = []
+        for chunk in self.chunks:
+            chunk_lower = chunk.lower()
+            score = 0
+            if query_lower in chunk_lower: 
+                score += 10 # Exact phrase match
+            for word in query_words:
+                if word in chunk_lower:
+                    score += 1
+            if score > 0:
+                scores.append((score, chunk))
+        
+        # Sort by score descending
+        scores.sort(key=lambda x: x[0], reverse=True)
+        return [item[1] for item in scores[:top_k]]
 
-    if has_cuda and _HAS_BNB:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-        tokenizer_local = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-        llm_local = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            device_map="auto",
-            quantization_config=bnb_config,
-        )
-    elif has_cuda and not _HAS_BNB:
-        print("⚠️ bitsandbytes not installed; loading in float16 (may use more VRAM).")
-        tokenizer_local = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-        llm_local = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            device_map="auto",
-        )
-    else:
-        # CPU fallback
-        tokenizer_local = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-        # new transformers shows deprecation warning for torch_dtype; it still works.
-        llm_local = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float32,
-            device_map={"": "cpu"},
-        )
+# Global Instance
+bot = SyllabusChatbot()
 
-    # Assign globals after everything is loaded
-    tokenizer = tokenizer_local
-    llm = llm_local
+# -------------------- API Helpers --------------------
 
-    # Ensure pad/eos tokens exist
-    if not hasattr(tokenizer, "pad_token_id") or tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+async def fetch_marks():
+    """Get marks from localhost:5000"""
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(MARKS_API_URL)
+            if resp.status_code == 200:
+                data = resp.json()
+                # Format data nicely
+                msg = "📊 **Your Academic Performance:**\n"
+                for subject, score in data.items():
+                    msg += f"- {subject}: {score}\n"
+                return msg
+            return f"⚠️ Could not fetch marks (Status {resp.status_code})."
+    except Exception:
+        return "⚠️ Could not connect to the Student Database (Port 5000). Is it running?"
 
-    print("✅ LLM loaded")
+async def fetch_topics(subject_name):
+    """Get topics from localhost:8000"""
+    url = f"{LOCAL_API_BASE}/syllabus/topics/{subject_name}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
+                modules = data.get("modules", [])
+                if not modules:
+                    return f"I found the subject **{data.get('subject')}**, but the syllabus parsing didn't find clear modules."
+                
+                msg = f"📘 **Syllabus for {data.get('subject')}:**\n\n"
+                for mod in modules:
+                    title = mod.get('title', 'Unit')
+                    num = mod.get('module_no', '')
+                    msg += f"**Module {num}: {title}**\n"
+                    # List first 2 units to keep it brief
+                    units = mod.get('units', [])
+                    for u in units[:3]:
+                        msg += f"  • {u.get('content')}\n"
+                    if len(units) > 3:
+                        msg += "  • ...and more\n"
+                    msg += "\n"
+                return msg
+            elif resp.status_code == 404:
+                return f"❌ I couldn't find a subject named '{subject_name}' in your uploads."
+            else:
+                return "⚠️ Error retrieving syllabus structure."
+    except Exception as e:
+        return f"⚠️ Internal Error: {str(e)}"
+
+# -------------------- Mental Health Logic --------------------
+
+def check_mental_health(query):
+    q = query.lower()
+    responses = {
+        "suicid": "🚨 **Important:** You are not alone. If you are in danger, please call a local emergency number or a suicide prevention hotline immediately. Your life has value.",
+        "kill myself": "🚨 **Please stop.** Reach out to a friend, family member, or a professional right now. There is help available.",
+        "depress": "💙 I'm sorry you're feeling this way. Depression is tough, but you don't have to fight it alone. Have you considered talking to a campus counselor?",
+        "anxiety": "🌬️ **Breathe.** Try the 4-7-8 technique: Inhale for 4s, hold for 7s, exhale for 8s. Focus on right now, not the future.",
+        "panic": "🛑 It's going to be okay. Look around you. Name 5 things you see, 4 you feel, 3 you hear. Ground yourself in the present.",
+        "stress": "📚 Exams can be stressful. Remember to take breaks. A 10-minute walk can do wonders for your brain. You've got this!",
+        "tired": "💤 Rest is part of studying. If you are exhausted, your brain won't retain info. Go get some sleep!",
+        "sad": "💙 It's okay to have down days. Be kind to yourself today."
+    }
+    for key, resp in responses.items():
+        if key in q:
+            return resp
+    return None
+
+def check_small_talk(query):
+    q = query.lower().strip()
+    greetings = ["hi", "hello", "hey", "good morning", "good evening"]
+    if q in greetings:
+        return "👋 Hello! I'm your Study Assistant. I can help with your **Syllabus**, **Marks**, or **Mental Health**. What do you need?"
+    if "who are you" in q:
+        return "🤖 I am an AI bot designed to help students navigate their coursework and academic stress."
+    return None
+
+# -------------------- Main Hooks (Called by main.py) --------------------
 
 def init_chatbot():
-    """Call this on startup to ensure models & embeddings are ready."""
-    load_models()
+    """Called by main.py on startup"""
+    bot.initialize()
 
-# -------------------- RAG Index --------------------
-def rebuild_rag_index(syllabus_rows: List[Dict[str, str]]):
-    global vectorstore, embeddings
-    if embeddings is None:
-        raise RuntimeError("Embeddings not loaded. Call load_models() first.")
+def rebuild_rag_index(data):
+    """Called by main.py when files change"""
+    bot.build_index(data)
 
-    print("🔄 Rebuilding RAG index...")
-    if not syllabus_rows:
-        print("❗ No syllabus data provided. RAG index will be empty.")
-        vectorstore = None
-        return False
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=120)
-    docs = []
-
-    for row in syllabus_rows:
-        subject = (row.get("name") or "Unknown Subject").strip()
-        text = (row.get("text") or "").strip()
-        if not text:
-            continue
-        chunks = splitter.split_text(text)
-        for i, chunk in enumerate(chunks):
-            docs.append(
-                Document(page_content=chunk, metadata={"source": subject, "chunk": i})
-            )
-
-    if not docs:
-        print("❗ No text chunks found after processing.")
-        vectorstore = None
-        return False
-
-    try:
-        vectorstore = FAISS.from_documents(documents=docs, embedding=embeddings)
-        print(f"✅ RAG index built with {len(docs)} chunks.")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to build RAG index: {e}")
-        vectorstore = None
-        return False
-
-# -------------------- Prompt helpers --------------------
-RAG_SYSTEM_PROMPT = (
-    "You are a helpful academic assistant. Answer ONLY from the given context. "
-    "If the answer isn't present, say it isn't available in the uploaded syllabuses. "
-    "Be concise and mention the source subject when possible."
-)
-
-def _build_rag_prompt(question: str, context_blocks: List[Document]) -> str:
-    context_text = []
-    for d in context_blocks:
-        src = d.metadata.get("source", "Unknown Subject")
-        context_text.append(f"[{src}] {d.page_content}")
-    context_joined = "\n\n".join(context_text[:8])
-
-    user_content = f"Context:\n{context_joined}\n\nQuestion:\n{question}\n\nAnswer:"
-    try:
-        prompt = tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": RAG_SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-    except Exception:
-        prompt = f"<SYS>{RAG_SYSTEM_PROMPT}</SYS>\nUser: {user_content}\nAssistant:"
-    return prompt
-
-def _build_chat_prompt(query: str) -> str:
-    try:
-        return tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": "You are a concise, helpful assistant."},
-                {"role": "user", "content": query},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-    except Exception:
-        return f"Assistant, answer concisely:\n\nUser: {query}\nAssistant:"
-
-# -------------------- Generation --------------------
-def _generate_text(prompt: str) -> str:
-    # non-streaming generate
-    device = next(llm.parameters()).device
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    out_ids = llm.generate(
-        **inputs,
-        max_new_tokens=512,
-        temperature=0.2,
-        top_p=0.95,
-        repetition_penalty=1.1,
-        do_sample=True,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id,
-    )
-    text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-    # Try to strip the prompt if it's included
-    if text.startswith(prompt):
-        return text[len(prompt):].strip()
-    return text.strip()
-
-def _generate_stream(prompt: str) -> Generator[str, None, None]:
-    device = next(llm.parameters()).device
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
-    gen_kwargs = dict(
-        **inputs,
-        max_new_tokens=512,
-        temperature=0.2,
-        top_p=0.95,
-        repetition_penalty=1.1,
-        do_sample=True,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id,
-        streamer=streamer,
-    )
-    thread = threading.Thread(target=llm.generate, kwargs=gen_kwargs)
-    thread.start()
-    for token in streamer:
-        yield token
-    thread.join()
-
-# -------------------- Public API --------------------
 def process_user_query(query: str, use_rag: bool = True) -> str:
-    if not query or not query.strip():
-        return "Query cannot be empty."
+    """
+    The main entry point.
+    Because main.py calls this synchronously, we wrap async logic here.
+    """
+    # We run the async logic inside a synchronous wrapper
+    return asyncio.run(_async_process(query, use_rag))
 
-    if tokenizer is None or llm is None or embeddings is None:
-        load_models()
+async def _async_process(query: str, use_rag: bool) -> str:
+    q_lower = query.lower()
 
+    # 1. Mental Health Check (Highest Priority)
+    mh_msg = check_mental_health(query)
+    if mh_msg:
+        return mh_msg
+
+    # 2. Small Talk Check
+    st_msg = check_small_talk(query)
+    if st_msg:
+        return st_msg
+
+    # 3. Check for Marks request
+    if any(x in q_lower for x in ["my marks", "my grades", "my score", "result", "cgpa"]):
+        return await fetch_marks()
+
+    # 4. Check for Syllabus Structure request (Regex)
+    # Matches: "modules of Java", "syllabus for Python", "topics in Chemistry"
+    match = re.search(r"(?:modules|syllabus|topics|chapters)\s+(?:of|for|in)\s+(.+)", q_lower)
+    if match:
+        subject = match.group(1).replace("?", "").strip()
+        return await fetch_topics(subject)
+
+    # 5. RAG / Knowledge Base Search
+    # If the user specifically wants syllabus info (or if general toggle is on)
     if use_rag:
-        if vectorstore is None:
-            return "No syllabus has been uploaded yet or the index is empty. Please upload and rebuild the index."
-        try:
-            docs = vectorstore.similarity_search(query, k=4)
-        except Exception as e:
-            print(f"❌ Retrieval error: {e}")
-            return "There was an error retrieving context. Please try again."
-        prompt = _build_rag_prompt(query, docs)
-        try:
-            return _generate_text(prompt)
-        except Exception as e:
-            print(f"❌ Generation error: {e}")
-            return "An error occurred while generating the response."
-    else:
-        prompt = _build_chat_prompt(query)
-        try:
-            return _generate_text(prompt)
-        except Exception as e:
-            print(f"❌ Generation error: {e}")
-            return "An error occurred while generating the response."
+        results = bot.search(query)
+        if results:
+            # Join the chunks into a response
+            response = "Here is what I found in your documents:\n\n"
+            response += "\n\n---\n".join(results)
+            return response
+        else:
+            return "🤷 I searched your uploaded syllabus files but couldn't find a relevant answer. Try checking the exact subject name or upload more documents."
+
+    # 6. Fallback
+    return "I'm not sure about that. Try asking about your **marks**, a specific **subject syllabus**, or toggle **Syllabus Mode** to search your documents."
 
 def process_user_query_stream(query: str, use_rag: bool = True) -> Generator[str, None, None]:
-    if tokenizer is None or llm is None or embeddings is None:
-        load_models()
-
-    if use_rag:
-        if vectorstore is None:
-            yield "No syllabus has been uploaded yet or the index is empty. Please upload and rebuild the index."
-            return
-        try:
-            docs = vectorstore.similarity_search(query, k=4)
-        except Exception as e:
-            yield f"[Retrieval Error] {e}"
-            return
-        prompt = _build_rag_prompt(query, docs)
-        yield from _generate_stream(prompt)
-    else:
-        prompt = _build_chat_prompt(query)
-        yield from _generate_stream(prompt)
+    """Simulates streaming for the frontend"""
+    response = process_user_query(query, use_rag)
+    words = response.split(" ")
+    for word in words:
+        yield word + " "
+        # Tiny delay to simulate thinking/typing
+        import time
+        time.sleep(0.01)

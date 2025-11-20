@@ -1,129 +1,43 @@
 // frontend/src/Components/Navbar.jsx
-import React, { useContext, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
-import "./Navbar.css";
-import {
-  Drawer,
-  List,
-  ListItem,
-  ListItemText,
-  IconButton,
-  Divider,
-  Avatar,
-} from "@mui/material";
-import MenuIcon from "@mui/icons-material/Menu";
-import CloseIcon from "@mui/icons-material/Close";
-import HomeIcon from "@mui/icons-material/Home";
-import FolderIcon from "@mui/icons-material/Folder";
-import LogoutIcon from "@mui/icons-material/Logout";
-import DescriptionIcon from "@mui/icons-material/Description"; // NEW
+import { FiMenu } from "react-icons/fi";
 
-const Navbar = () => {
-  const { user, logout } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const toggleDrawer = (open) => (event) => {
-    if (event?.type === "keydown" && (event.key === "Tab" || event.key === "Shift")) return;
-    setDrawerOpen(open);
-  };
-
-  const handleNavigation = (path) => {
-    navigate(path);
-    setDrawerOpen(false);
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
-  };
+const Navbar = ({ drawerOpen, setDrawerOpen }) => {
+  const { user } = useContext(AuthContext);
 
   return (
-    <>
-      <nav className="navbar" role="navigation" aria-label="main navigation">
-        <div className="navbar-container">
-          <div className="navbar-left">
-            {user?.role === "teacher" && (
-              <IconButton
-                onClick={toggleDrawer(true)}
-                className="menu-icon"
-                aria-label="Open menu"
-                size="large"
-                edge="start"
-              >
-                <MenuIcon />
-              </IconButton>
-            )}
-            <div className="navbar-brand" onClick={() => navigate("/")}>
-              <h2>Student Risk System</h2>
-            </div>
-          </div>
+    <nav className="w-full bg-white shadow-sm border-b border-gray-100 px-6 py-3 flex items-center justify-between sticky top-0 z-40 lg:pl-80">
+      {/* Left Section */}
+      <div className="flex items-center gap-4">
+        {/* Hamburger only on mobile */}
+        <button
+          onClick={() => setDrawerOpen(!drawerOpen)}
+          className="lg:hidden p-2 rounded-md hover:bg-gray-100 transition"
+        >
+          <FiMenu className="w-6 h-6 text-gray-700" />
+        </button>
 
-          <div className="navbar-center">
-            <p>Empowering Teachers with Predictive Insights</p>
-          </div>
+        <h2 className="text-xl font-semibold text-gray-800">Student Risk System</h2>
+      </div>
 
-          <div className="navbar-right">
-            <div className="user-section">
-              <Avatar sx={{ bgcolor: "#4f9efc", width: 36, height: 36 }}>
-                {user?.name?.[0]?.toUpperCase() || "U"}
-              </Avatar>
-              <div className="user-info">
-                <span className="user-name">{user?.name}</span>
-                <span className="user-role">{user?.role}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
+      {/* Center */}
+      <div className="hidden md:block text-gray-500 text-sm">
+        Empowering Teachers with Predictive Insights
+      </div>
 
-      <Drawer
-        anchor="left"
-        open={drawerOpen}
-        onClose={toggleDrawer(false)}
-        transitionDuration={400}
-        classes={{ paper: "glass-drawer" }}
-      >
-        <div className="drawer-header">
-          <h3>Teacher Menu</h3>
-          <IconButton onClick={toggleDrawer(false)}>
-            <CloseIcon sx={{ color: "#fff" }} />
-          </IconButton>
+      {/* Right = user */}
+      <div className="flex items-center gap-3 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200">
+        <div className="w-9 h-9 flex items-center justify-center rounded-full bg-blue-500 text-white font-medium">
+          {user?.name?.[0] || "U"}
         </div>
 
-        <Divider sx={{ bgcolor: "rgba(255,255,255,0.2)" }} />
-
-        <List>
-          <ListItem button onClick={() => handleNavigation("/teacher/home")}>
-            <HomeIcon sx={{ mr: 2, color: "#4f9efc" }} />
-            <ListItemText primary="Home" />
-          </ListItem>
-
-          <ListItem button onClick={() => handleNavigation("/teacher/records")}>
-            <FolderIcon sx={{ mr: 2, color: "#4f9efc" }} />
-            <ListItemText primary="Records" />
-          </ListItem>
-
-          {/* NEW */}
-          <ListItem button onClick={() => handleNavigation("/teacher/syllabus")}>
-            <DescriptionIcon sx={{ mr: 2, color: "#4f9efc" }} />
-            <ListItemText primary="Add Syllabus" />
-          </ListItem>
-         <ListItem button onClick={() => handleNavigation("/teacher/marks-upload")}>
-            <DescriptionIcon sx={{ mr: 2, color: "#4f9efc" }} />
-            <ListItemText primary="Add Marks" />
-          </ListItem>
-
-          <Divider sx={{ bgcolor: "rgba(255,255,255,0.2)", my: 1 }} />
-
-          <ListItem button onClick={handleLogout}>
-            <LogoutIcon sx={{ mr: 2, color: "#ff5c5c" }} />
-            <ListItemText primary="Logout" />
-          </ListItem>
-        </List>
-      </Drawer>
-    </>
+        <div className="flex flex-col leading-tight">
+          <span className="text-sm font-medium text-gray-800">{user?.name}</span>
+          <span className="text-xs text-gray-500">{user?.role}</span>
+        </div>
+      </div>
+    </nav>
   );
 };
 

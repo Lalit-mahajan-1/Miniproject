@@ -1,10 +1,13 @@
-# app/main.py
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import (
     FastAPI, HTTPException, UploadFile, File, Form,
     BackgroundTasks, APIRouter
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from app.gemini_client import ask_gemini
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -16,18 +19,22 @@ import os
 import csv
 import json
 
-# OCR deps
-import pytesseract
-from PIL import Image
-import fitz  # PyMuPDF
+from app.syllabus_context import build_context
 
-# Router (chatbot)
-from app.chatbot import (
-    init_chatbot,
-    rebuild_rag_index,
-    process_user_query,
-    process_user_query_stream,
-)
+
+
+# Optional OCR deps (don’t block CSV upload if missing)
+try:
+    import pytesseract  # type: ignore
+    from PIL import Image  # type: ignore
+except Exception:
+    pytesseract = None  # type: ignore
+    Image = None  # type: ignore
+
+try:
+    import fitz  # PyMuPDF  # type: ignore
+except Exception:
+    fitz = None  # type: ignore
 
 app = FastAPI(title="Syllabus OCR + Chatbot API")
 
@@ -37,7 +44,6 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
@@ -56,6 +62,10 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # -------------------- Tesseract configuration --------------------
 def setup_tesseract_cmd():
+    if pytesseract is None:
+        print("ℹ️ pytesseract not installed. OCR endpoints will be limited.")
+        return
+
     env_path = os.getenv("TESSERACT_CMD")
     if env_path and Path(env_path).exists():
         pytesseract.pytesseract.tesseract_cmd = env_path
@@ -91,7 +101,6 @@ def init_db():
             );
             """
         )
-        # If table existed without outline_json, add it
         try:
             cols = [r[1] for r in con.execute("PRAGMA table_info('syllabus')").fetchall()]
             if "outline_json" not in cols:
@@ -164,7 +173,12 @@ def run_rag_rebuild():
         syllabus_data = get_all_syllabus_data()
         if not syllabus_data:
             print("No syllabus data found in DB. RAG index will be empty.")
-        rebuild_rag_index(syllabus_data)
+        # Lazy import chatbot and rebuild
+        try:
+            from app import chatbot as cb
+            cb.rebuild_rag_index(syllabus_data)
+        except Exception as e:
+            print(f"❌ RAG rebuild skipped (chatbot deps missing or error): {e}")
     except Exception as e:
         print(f"❌ Error during RAG index rebuild: {e}")
 
@@ -180,11 +194,15 @@ def clean_text(text: str) -> str:
     return text
 
 def ocr_image_bytes(img_bytes: bytes) -> str:
+    if pytesseract is None or Image is None:
+        raise HTTPException(status_code=503, detail="OCR dependencies not installed on server.")
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     out = pytesseract.image_to_string(img, lang="eng")
     return clean_text(out)
 
 def pdf_to_images_bytes(pdf_bytes: bytes, zoom: float = 2.0) -> List[bytes]:
+    if fitz is None:
+        raise HTTPException(status_code=503, detail="PDF OCR dependencies not installed on server.")
     images = []
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         mat = fitz.Matrix(zoom, zoom)
@@ -194,6 +212,8 @@ def pdf_to_images_bytes(pdf_bytes: bytes, zoom: float = 2.0) -> List[bytes]:
     return images
 
 def ocr_pdf_bytes(pdf_bytes: bytes) -> str:
+    if fitz is None:
+        raise HTTPException(status_code=503, detail="PDF OCR dependencies not installed on server.")
     try:
         with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
             extracted = "\n".join(page.get_text("text") for page in doc)
@@ -209,8 +229,6 @@ def ocr_pdf_bytes(pdf_bytes: bytes) -> str:
     return clean_text("\n\n".join(text_chunks))
 
 # -------------------- CSV helpers for prediction --------------------
-import math
-
 def norm_key(k: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (k or "").lower())
 
@@ -360,10 +378,6 @@ topic_line = re.compile(
 )
 
 def extract_outline(text: str) -> Dict[str, Any]:
-    """
-    Heuristic parser to extract chapters and topics from OCR text.
-    Returns: {"chapters": [ {"title": str, "topics": [str, ...]}, ... ]}
-    """
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     chapters: List[Dict[str, Any]] = []
     current = None
@@ -394,14 +408,10 @@ def extract_outline(text: str) -> Dict[str, Any]:
                 current["topics"].append(topic)
             continue
 
-        # If there's no explicit bullets but we are inside a chapter,
-        # treat short lines as potential topics
         if current and 3 <= len(ln) <= 120 and not ln.lower().startswith(("chapter", "unit", "module", "part", "section", "week")):
-            # avoid headings like "Syllabus", "Objectives"
             if not re.search(r"(syllabus|objective|outcome|policy|grading|assessment)", ln, re.I):
                 current["topics"].append(ln)
 
-    # Fallback: if no chapters detected, build a single chapter from all topic-like lines
     if not chapters:
         topics = []
         for ln in lines:
@@ -411,11 +421,55 @@ def extract_outline(text: str) -> Dict[str, Any]:
         if topics:
             chapters = [{"title": "Syllabus", "topics": topics}]
 
-    # Trim empty chapters
     chapters = [c for c in chapters if c.get("title") and isinstance(c.get("topics"), list)]
     return {"chapters": chapters}
 
-# -------------------- Chatbot Router --------------------
+# -------------------- Chatbot Router (lazy import) --------------------
+
+
+# harshit chatgpt code
+@app.post("/chat/gemini")
+async def gemini_chat_smart(query: str = Form(...)):
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+
+    print(f"📩 Smart Query: {query}")
+
+    # Build dynamic syllabus context
+    context = build_context()
+
+    # Construct final prompt for Gemini
+    prompt = f"""
+You are an academic assistant for students.
+
+Here is the entire syllabus data of the system. Use it to answer:
+
+-------------------
+CONTEXT START
+{context}
+-------------------
+CONTEXT END
+
+User question: {query}
+
+Rules:
+- Give answers ONLY using the syllabus context.
+- If the question is about modules/units/books, extract correct info.
+- If not found, say 'This topic is not in the syllabus.'
+"""
+    # prompt = query
+    print("promt",prompt)
+    reply = ask_gemini(prompt)
+
+    return {
+        "success": True,
+        "response": reply
+    }
+
+
+
+
+
 chat_router = APIRouter(prefix="/chat", tags=["Chatbot"])
 
 @chat_router.post("/")
@@ -428,9 +482,15 @@ async def handle_chat_query(
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
     try:
-        response = process_user_query(query.strip(), use_rag)
+        try:
+            from app import chatbot as cb
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Chatbot unavailable: {e}")
+        response = cb.process_user_query(query.strip(), use_rag)
         print(f"✅ Response generated: {response[:120]}...")
         return {"response": response, "success": True}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Chat processing error: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {str(e)}")
@@ -440,16 +500,13 @@ async def handle_chat_stream(
     query: str = Form(...),
     use_rag: bool = Form(True)
 ):
-    """
-    Server-Sent Events stream to avoid timeouts in frontend.
-    """
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
     def sse():
         try:
-            for token in process_user_query_stream(query.strip(), use_rag=use_rag):
-                # SSE format: data: <text>\n\n
+            from app import chatbot as cb
+            for token in cb.process_user_query_stream(query.strip(), use_rag=use_rag):
                 yield f"data: {token}\n\n"
         except Exception as e:
             yield f"data: [ERROR] {str(e)}\n\n"
@@ -458,7 +515,6 @@ async def handle_chat_stream(
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 
-# Attach the chatbot router to the main app
 app.include_router(chat_router)
 
 # -------------------- Routes --------------------
@@ -466,6 +522,11 @@ app.include_router(chat_router)
 async def root():
     return {"message": "Syllabus OCR + Chatbot API is running"}
 
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
+# Accept both /uploadfile and /uploadfile/ to avoid redirect issues
 @app.post("/uploadfile")
 @app.post("/uploadfile/")
 async def upload_csv(file_upload: UploadFile = File(...)):
@@ -534,14 +595,12 @@ async def upload_syllabus(
 
         subject_id = save_subject(subject_name.strip(), extracted_text, filename, file_bytes)
 
-        # Build outline right away and store
         outline = extract_outline(extracted_text)
         try:
             update_outline(subject_id, outline)
         except Exception as e:
             print(f"⚠️ Could not save outline JSON: {e}")
 
-        # Rebuild RAG index in background
         rebuild_index_background(background_tasks)
 
         return {"subject_id": subject_id, "text": extracted_text, "name": subject_name.strip(), "outline": outline}
@@ -566,29 +625,304 @@ async def get_syllabus(subject_id: str):
         raise HTTPException(status_code=404, detail="Subject not found")
     return {"id": s["id"], "name": s["name"], "text": s["text"], "created_at": s["created_at"], "outline": json.loads(s["outline_json"] or '{"chapters": []}')}
 
-# ---------- New: Topics APIs used by Dashboard.jsx ----------
+
 @app.get("/syllabus/topics/{subject_name}")
 async def get_topics_by_subject(subject_name: str):
+    """
+    Returns structured syllabus for a subject:
+
+    {
+      "subject": "...",
+      "modules": [ ... ],
+      "textbooks": [ ... ],
+      "reference_books": [ ... ]
+    }
+    """
     row = get_subject_by_name(subject_name)
     if not row:
         raise HTTPException(status_code=404, detail="Subject not found")
 
-    outline = None
-    try:
-        if row["outline_json"]:
-            outline = json.loads(row["outline_json"])
-    except Exception:
-        outline = None
+    text = row["text"] or ""
 
-    if not outline:
-        # Parse now, store, then return
-        outline = extract_outline(row["text"] or "")
-        try:
-            update_outline(row["id"], outline)
-        except Exception as e:
-            print(f"⚠️ Could not update outline JSON: {e}")
+    # --------- helpers local to this endpoint ---------
+    def parse_modules_and_units(txt: str):
+        lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+        modules = []
+        current_module = None
+        current_unit = None
+        in_theory = False
 
-    return {"subject": row["name"], "chapters": outline.get("chapters", [])}
+        for line in lines:
+            low = line.lower()
+
+            # Enter theory component section
+            if not in_theory:
+                if "theory component" in low:
+                    in_theory = True
+                continue
+
+            # Stop parsing modules/units when lab or books section starts
+            if re.search(r"\blaboratory component\b", low):
+                break
+            if low.startswith("text books") or low.startswith("textbooks"):
+                break
+            if low.startswith("reference books"):
+                break
+
+            # Skip table header lines like "Module | Unit No. No."
+            if "module" in low and "unit" in low and "no" in low:
+                continue
+            if low.startswith("topics ref"):
+                continue
+            if low.startswith("total "):
+                continue
+
+            # Module line: "1 Title | Introduction to Distributed Systems"
+            m_mod = re.match(r"^(\d+)\s+Title\b[:|]?\s*(.+)$", line, re.I)
+            if m_mod:
+                module_no = int(m_mod.group(1))
+                title = m_mod.group(2).strip().rstrip(".")
+                current_module = {
+                    "module_no": module_no,
+                    "title": title,
+                    "units": [],
+                }
+                modules.append(current_module)
+                current_unit = None
+                continue
+
+            # Special case: Self Study line like "6 Self | Cloud Computing..."
+            m_self = re.match(r"^(\d+)\s+Self\b.*", line, re.I)
+            if m_self:
+                module_no = int(m_self.group(1))
+                current_module = {
+                    "module_no": module_no,
+                    "title": "Self Study",
+                    "units": [],
+                }
+                modules.append(current_module)
+                current_unit = None
+
+                # Treat same line content after '|' as a unit 6.1
+                if "|" in line:
+                    after_pipe = line.split("|", 1)[1].strip()
+                    after_pipe = after_pipe.split("|", 1)[0].strip()
+                    if after_pipe:
+                        current_unit = {
+                            "unit_no": f"{module_no}.1",
+                            "content": after_pipe,
+                        }
+                        current_module["units"].append(current_unit)
+                continue
+
+            # Unit lines
+            if current_module:
+                # pattern with pipe: "1.1 | Definition ..."
+                m_unit = re.match(r"^(\d+(?:\.\d+)?)\s*\|\s*(.+)$", line)
+                if not m_unit:
+                    # fallback without pipe: "3.2 Clock Synchronization: ..."
+                    m_unit = re.match(r"^(\d+(?:\.\d+)?)\s+(.+)$", line)
+                if m_unit:
+                    num_str = m_unit.group(1).strip()
+                    rest = m_unit.group(2).strip()
+
+                    # ignore if this actually looks like a module header
+                    if rest.lower().startswith("title"):
+                        continue
+
+                    # Fix common OCR like "41" instead of "4.1"
+                    unit_no = num_str
+                    if (
+                        "." not in num_str
+                        and len(num_str) == 2
+                        and str(current_module["module_no"]) == num_str[0]
+                    ):
+                        unit_no = f"{num_str[0]}.{num_str[1]}"
+
+                    # Remove everything after next '|' (reference / hours columns)
+                    rest = rest.split("|", 1)[0].strip()
+
+                    if rest:
+                        current_unit = {
+                            "unit_no": unit_no,
+                            "content": rest,
+                        }
+                        current_module["units"].append(current_unit)
+                    else:
+                        current_unit = None
+                    continue
+
+            # Continuation lines for current unit
+            if current_module and current_unit:
+                # Avoid headers we've not caught
+                if re.match(r"^\d+\s+Title\b", line, re.I):
+                    continue
+                if line.lower().startswith(
+                    ("text books", "reference books", "laboratory component")
+                ):
+                    continue
+
+                cont = line.split("|", 1)[0].strip()
+                if not cont:
+                    continue
+                if not current_unit["content"].endswith((" ", "-", "/")):
+                    current_unit["content"] += " "
+                current_unit["content"] += cont
+                continue
+
+        # Cleanup text
+        for mod in modules:
+            for u in mod.get("units", []):
+                if not isinstance(u.get("content"), str):
+                    continue
+                content = re.sub(r"\s+", " ", u["content"]).strip()
+                u["content"] = content
+
+        return modules
+
+    def parse_book_entry(raw: str):
+        """
+        Parse a single textbook/reference book entry line into
+        {title, authors, publisher, edition}.
+        Best-effort, robust to OCR noise.
+        """
+        s = raw.replace("|", " ")
+        s = re.sub(r"\s+", " ", s).strip()
+        # remove leading index number
+        s = re.sub(r"^\d+\s+", "", s)
+
+        # Remove trailing year if any
+        year_match = re.search(r"(19|20)\d{2}", s)
+        if year_match:
+            s_wo_year = s[:year_match.start()].strip()
+        else:
+            s_wo_year = s
+
+        PUBLISHER_PAT = (
+            r"(Pearson(?:\s+Education)?|PHI|Cambridge(?:\s+University\s+Press)?|"
+            r"MIT\s+Press|Research\s+India|McGraw[-\s]?Hill|Wiley|Springer|"
+            r"Oxford(?:\s+University\s+Press)?)"
+        )
+
+        # Edition
+        ed_match = re.search(r"\b[\w\d]+(?:st|nd|rd|th)?\s+Edition\b", s_wo_year, re.I)
+
+        title = ""
+        authors = ""
+        publisher = ""
+        edition = ""
+
+        if ed_match:
+            edition = ed_match.group(0).strip()
+            before_ed = s_wo_year[:ed_match.start()].strip()
+            after_ed = s_wo_year[ed_match.end():].strip()
+            title = before_ed.rstrip(".,;")
+
+            if after_ed:
+                m_pub = re.search(PUBLISHER_PAT, after_ed)
+                if m_pub:
+                    authors = after_ed[:m_pub.start()].strip().rstrip(",;")
+                    publisher = after_ed[m_pub.start():].strip().rstrip(".,;")
+                else:
+                    authors = after_ed.strip().rstrip(",;")
+        else:
+            # No edition, try to find publisher directly
+            m_pub = re.search(PUBLISHER_PAT, s_wo_year)
+            if m_pub:
+                before_p = s_wo_year[:m_pub.start()].strip()
+                publisher = s_wo_year[m_pub.start():].strip().rstrip(".,;")
+                title = before_p.rstrip(".,;")
+            else:
+                title = s_wo_year.rstrip(".,;")
+
+        return {
+            "title": title,
+            "authors": authors,
+            "publisher": publisher,
+            "edition": edition,
+        }
+
+    def extract_books_from_text(txt: str, header_pattern: str, stop_patterns):
+        """
+        Extract list of books from a section starting with header_pattern,
+        stopping before any of stop_patterns.
+        """
+        lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+        n = len(lines)
+
+        header_idx = -1
+        for i, l in enumerate(lines):
+            if re.search(header_pattern, l, re.I):
+                header_idx = i
+                break
+        if header_idx == -1:
+            return []
+
+        stop_idx = n
+        if stop_patterns:
+            for i in range(header_idx + 1, n):
+                low = lines[i].lower()
+                if any(re.search(sp, low) for sp in stop_patterns):
+                    stop_idx = i
+                    break
+
+        section_lines = [ln for ln in lines[header_idx + 1:stop_idx] if ln]
+        # Remove header row like "Sr. No | Title Edition Authors Publisher Year"
+        section_lines = [
+            ln for ln in section_lines
+            if not re.match(r"^sr\.", ln, re.I)
+        ]
+
+        books_raw = []
+        current = ""
+
+        for ln in section_lines:
+            if re.match(r"^\d+\s", ln):
+                if current:
+                    books_raw.append(current.strip())
+                current = ln
+            else:
+                if current:
+                    current += " " + ln
+        if current:
+            books_raw.append(current.strip())
+
+        books = []
+        for raw in books_raw:
+            entry = parse_book_entry(raw)
+            if entry.get("title"):
+                books.append(entry)
+
+        return books
+
+    def parse_syllabus_structured(txt: str):
+        modules = parse_modules_and_units(txt)
+        textbooks = extract_books_from_text(
+            txt,
+            header_pattern=r"^text\s*books",
+            stop_patterns=[r"^reference\s*books"],
+        )
+        reference_books = extract_books_from_text(
+            txt,
+            header_pattern=r"^reference\s*books",
+            stop_patterns=[],
+        )
+        return {
+            "modules": modules,
+            "textbooks": textbooks,
+            "reference_books": reference_books,
+        }
+
+    # --------- actual logic ---------
+    structured = parse_syllabus_structured(text)
+
+    return {
+        "subject": row["name"],
+        "modules": structured.get("modules", []),
+        "textbooks": structured.get("textbooks", []),
+        "reference_books": structured.get("reference_books", []),
+    }
+
 
 @app.post("/syllabus/reparse/{subject_id}")
 async def reparse_outline(subject_id: str):
@@ -604,7 +938,17 @@ async def reparse_outline(subject_id: str):
 @app.on_event("startup")
 async def on_startup():
     init_db()
-    init_chatbot()   # Ensure models & embeddings are loaded before RAG rebuild
-    print("✅ Models initialized")
-    run_rag_rebuild()
+    # Try to init chatbot without breaking the server if deps/models are missing
+    try:
+        from app import chatbot as cb
+        cb.init_chatbot()
+        print("✅ Chatbot models initialized (or deferred).")
+        run_rag_rebuild()
+    except Exception as e:
+        print(f"ℹ️ Chatbot init skipped or failed: {e}")
     print("✅ Server ready!")
+
+# Allow: python -m app.main
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
